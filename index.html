@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Training Suite</title>
+<meta name="description" content="Training Suite: your personal toolkit for professional training delivery.">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@400;500;700&family=Playfair+Display:ital,wght@1,400;1,600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- LANDING -->
+<section class="landing" id="landing" hidden>
+  <header>
+    <a class="brand" href="#/" data-logo="40"><b>Training Suite</b></a>
+    <nav aria-label="Main">
+      <a href="#/signin">Sign in</a>
+      <a class="btn" href="#/signup">Request access</a>
+    </nav>
+  </header>
+  <div class="hero">
+    <div class="copy">
+      <span class="lbl">For trainers</span>
+      <h1>Training people<br>remember.</h1>
+      <p class="lead">Check-in, gesture slides, live quizzes, evaluation and certificates. One suite, from the first welcome to the last certificate.</p>
+      <div class="row"><a class="btn red" href="#/signup">Request access</a><a class="btn ghost" href="#/signin">Sign in</a></div>
+      <span class="small muted">New accounts are approved before first use.</span>
+    </div>
+    <div class="art" aria-hidden="true">
+      <i style="left:2%;top:20%;width:52%;height:62%;background:var(--blue);transform:rotate(8deg)"></i>
+      <i style="left:22%;top:26%;width:52%;height:62%;background:var(--yellow);transform:rotate(-3deg)"></i>
+      <i style="left:42%;top:0;width:52%;height:62%;background:var(--red);transform:rotate(-7deg);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:clamp(48px,7vw,96px);color:#fff">TS</i>
+    </div>
+  </div>
+  <section class="flowband">
+    <div class="in">
+      <div style="display:flex;flex-direction:column;gap:12px"><span class="lbl">In the room</span><h2>Everything a session needs</h2></div>
+      <ol class="steps7">
+        <li><span class="n">01</span><b>Check-in</b><span>Scan, snap, welcome</span></li>
+        <li><span class="n">02</span><b>Pre-test</b><span>Where everyone starts</span></li>
+        <li><span class="n">03</span><b>Train</b><span>Slides by gesture</span></li>
+        <li><span class="n">04</span><b>Activities</b><span>Throw, spin, quiz</span></li>
+        <li><span class="n">05</span><b>Post-test</b><span>What was learned</span></li>
+        <li><span class="n">06</span><b>Evaluation</b><span>How it landed</span></li>
+        <li><span class="n">07</span><b>Certificate</b><span>Optional, verifiable</span></li>
+      </ol>
+    </div>
+  </section>
+  <footer><div><span>Training Suite</span><span>© <span id="yr"></span></span></div></footer>
+</section>
+
+<!-- SIGN IN / REQUEST ACCESS / PENDING -->
+<section class="auth" id="auth" hidden>
+  <div class="side">
+    <a class="brand" href="#/" data-logo="40"><b>Training Suite</b></a>
+    <div class="art" aria-hidden="true">
+      <i style="left:0;top:64px;width:160px;height:160px;background:var(--blue);transform:rotate(8deg)"></i>
+      <i style="left:56px;top:76px;width:160px;height:160px;background:var(--yellow);transform:rotate(-3deg)"></i>
+      <i style="left:118px;top:0;width:160px;height:160px;background:var(--red);transform:rotate(-7deg);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:60px;color:#fff">TS</i>
+    </div>
+    <p>Your personal toolkit for professional training delivery.</p>
+  </div>
+  <div class="main">
+    <div class="box">
+      <nav class="tabs" id="authTabs" aria-label="Sign in or request access">
+        <a href="#/signin" id="tabIn">Sign in</a>
+        <a href="#/signup" id="tabUp">Request access</a>
+      </nav>
+
+      <form id="inForm" novalidate>
+        <h1>Welcome back</h1>
+        <label class="fld">Email<input type="email" id="inEmail" autocomplete="email" required></label>
+        <label class="fld">Password<input type="password" id="inPass" autocomplete="current-password" required></label>
+        <button class="btn red" type="submit">Sign in</button>
+        <button class="btn ghost small" type="button" id="forgot" style="align-self:flex-start">Forgot password?</button>
+        <div class="err" id="inErr" role="alert"></div>
+      </form>
+
+      <form id="upForm" novalidate hidden>
+        <h1>Request access</h1>
+        <p class="muted">We review every request. You'll be able to sign in once your account is approved.</p>
+        <label class="fld">Full name<input type="text" id="upName" autocomplete="name" placeholder="e.g. Dr. Babajide Arulogun" required></label>
+        <label class="fld">Email<input type="email" id="upEmail" autocomplete="email" required></label>
+        <label class="fld">Phone<input type="tel" id="upPhone" autocomplete="tel" placeholder="080…"></label>
+        <label class="fld">I am a
+          <select id="upRole"><option value="programme_lead">Programme Lead (I run programmes and add course leads)</option><option value="course_lead">Course Lead (I run sessions)</option></select>
+        </label>
+        <label class="fld">Where you train<input type="text" id="upWhere" placeholder="e.g. PSSDC, or your own practice"></label>
+        <label class="fld">Password<span class="hint">At least 8 characters.</span><input type="password" id="upPass" autocomplete="new-password" required></label>
+        <button class="btn" type="submit">Send request</button>
+        <div class="err" id="upErr" role="alert"></div>
+      </form>
+
+      <div id="waitBox" hidden style="display:flex;flex-direction:column;gap:18px">
+        <span aria-hidden="true" style="width:56px;height:56px;background:var(--yellow);display:grid;place-items:center"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#14161C" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+        <h1 id="waitTitle">Request received</h1>
+        <p id="waitMsg" style="font-size:17px;color:var(--ink-2)">Your account is pending approval. You'll be able to sign in as soon as it's approved.</p>
+        <button class="btn ghost" type="button" id="waitOut" style="align-self:flex-start">Back to sign in</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- APP -->
+<div class="shell" id="shell" hidden>
+  <aside class="side-nav">
+    <a class="brand" href="#/dashboard" data-logo="36"><b>Training Suite</b></a>
+    <a class="btn red" href="#/new" style="justify-content:flex-start"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New session</a>
+    <nav aria-label="Main" id="mainNav">
+      <a href="#/dashboard" data-nav="dashboard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Dashboard</a>
+      <a href="#/programmes" data-nav="programmes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3z"/></svg>Programmes</a>
+      <a href="#/sessions" data-nav="sessions"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="17"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>My sessions</a>
+      <a href="#/library" data-nav="library"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h6v16H4zM10 4h4v16h-4zM15 5l4-1 3 15-4 1z"/></svg>Library</a>
+      <a href="#/reports" data-nav="reports"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Reports</a>
+      <a href="#/settings" data-nav="settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</a>
+    </nav>
+    <div class="me"><b id="meName"></b><span id="meRole"></span><button type="button" id="signOut">Sign out</button></div>
+  </aside>
+  <main class="view" id="view" tabindex="-1"></main>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

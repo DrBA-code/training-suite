@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Training Suite · Admin console</title>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  .adminbadge{align-self:flex-start;background:var(--ink);color:var(--yellow);font-family:var(--mono);font-size:11px;letter-spacing:.14em;padding:5px 9px}
+  .signbox{max-width:420px;margin:12vh auto;padding:0 20px;display:flex;flex-direction:column;gap:18px}
+</style>
+</head>
+<body>
+<section id="gate" class="signbox" hidden>
+  <a class="brand" href="../" data-logo="40"><b>Training Suite</b></a>
+  <span class="adminbadge">ADMIN CONSOLE</span>
+  <h1 style="font-size:32px;font-weight:800">Super Admin sign-in</h1>
+  <p class="muted">For the Training Suite team only.</p>
+  <form id="gForm" style="display:flex;flex-direction:column;gap:14px" novalidate>
+    <label class="fld">Email<input type="email" id="gEmail" autocomplete="email"></label>
+    <label class="fld">Password<input type="password" id="gPass" autocomplete="current-password"></label>
+    <button class="btn" type="submit">Sign in</button>
+    <div class="err" id="gErr" role="alert"></div>
+  </form>
+</section>
+
+<div class="shell" id="shell" hidden>
+  <aside class="side-nav">
+    <a class="brand" href="../" data-logo="36"><b>Training Suite</b></a>
+    <span class="adminbadge">ADMIN CONSOLE</span>
+    <nav aria-label="Admin">
+      <a href="#requests" data-nav="requests">Account requests <span id="nPending" style="margin-left:auto;background:var(--yellow);color:var(--ink);font-size:12px;font-weight:700;padding:2px 8px" hidden></span></a>
+      <a href="#accounts" data-nav="accounts">Accounts</a>
+    </nav>
+    <p class="small muted" style="padding:0 6px">Customers never see this area. Plans and billing, usage and the shared library come later.</p>
+    <div class="me"><b id="meName"></b><span>Super Admin</span><button type="button" id="signOut">Sign out</button></div>
+  </aside>
+  <main class="view" id="view"></main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="../config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>
