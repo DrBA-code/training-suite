@@ -2,17 +2,122 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#FFFFFF">
 <title>Check-in · Training Suite</title>
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:wght@400;700&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=DM+Sans:wght@400;500;700&family=Playfair+Display:ital,wght@1,600&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="../styles.css">
+<style>
+  /* Participant's phone: check in once, then this page becomes their session room. */
+  body{background:#fff}
+  .p{max-width:520px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top,0px)) 18px calc(110px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:18px}
+  .ptop{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .ptop .live{font-family:var(--mono);font-size:12px;color:var(--faint);display:flex;gap:6px;align-items:center}
+  .ptop .live i{width:8px;height:8px;background:var(--line-2)}
+  .ptop .live.on i{background:#2E9E6B}
+  .sesshead{display:flex;flex-direction:column;gap:6px}
+  .sesshead h1{font-size:clamp(26px,7vw,34px);font-weight:800}
+  .titles{display:flex;flex-wrap:wrap;gap:6px}
+  .titles input{position:absolute;opacity:0;pointer-events:none}
+  .titles label{padding:9px 14px;border:1.5px solid var(--line-2);cursor:pointer;font-weight:700;font-size:15px}
+  .titles input:checked+label{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .titles input:focus-visible+label{outline:3px solid var(--blue);outline-offset:2px}
+  .certprev{border:1.5px dashed var(--ink);padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+  .certprev span{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .certprev b{font-family:var(--serif);font-style:italic;font-weight:600;font-size:24px}
+  .cam{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .ring{width:132px;height:132px;border:3px solid var(--ink);overflow:hidden;background:var(--sage);display:grid;place-items:center;flex:none;position:relative}
+  .ring video,.ring img{width:100%;height:100%;object-fit:cover}
+  .ring video{transform:scaleX(-1)}
+  .ring span{font-size:12px;color:var(--muted);text-align:center;padding:8px}
+  .consent{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--muted)}
+  .consent input{width:20px;height:20px;margin-top:2px;flex:none;accent-color:var(--blue)}
+  .me{display:grid;grid-template-columns:72px 1fr;gap:14px;align-items:center}
+  .me .ph{width:72px;height:72px;background:var(--sage);overflow:hidden;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:24px}
+  .me .ph img{width:100%;height:100%;object-fit:cover}
+  .me b{font-family:var(--display);font-size:20px;display:block;line-height:1.2}
+  .groups{display:flex;border:1.5px solid var(--ink)}
+  .groups button{flex:1;border:0;background:#fff;padding:11px 6px;font-weight:700;cursor:pointer}
+  .groups button[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .now{background:var(--sage);padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+  .items{display:flex;flex-direction:column;gap:8px}
+  .item{display:grid;grid-template-columns:48px 1fr auto;gap:12px;align-items:center;border:1.5px solid var(--ink);padding:10px 12px;color:var(--ink);text-decoration:none}
+  .item:hover{color:var(--ink);background:#FAFBF9}
+  .item .ic{width:48px;height:48px;background:var(--sage);display:grid;place-items:center;overflow:hidden;font-family:var(--mono);font-size:11px}
+  .item .ic img{width:100%;height:100%;object-fit:cover}
+  .item small{display:block;color:var(--muted);font-size:12px}
+  .item.new{animation:land .8s ease-out}
+  @keyframes land{0%{transform:translateY(-16px);border-color:var(--red)}}
+  .dock{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 18px calc(12px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center}
+  .dock .btn{width:100%;max-width:484px}
+  .bye{display:flex;flex-direction:column;gap:14px;align-items:flex-start;padding-top:8vh}
+  .bye h1{font-size:36px;font-weight:800}
+  #fly{position:fixed;inset:0;z-index:20;background:rgba(20,22,28,.86);display:grid;place-items:center;padding:24px}
+  #fly .card{background:#fff;width:min(86vw,380px);padding:18px;display:flex;flex-direction:column;gap:12px;animation:fromTop .7s cubic-bezier(.2,.9,.25,1.15) both}
+  #fly .card img{width:100%;max-height:44vh;object-fit:contain;background:var(--sage)}
+  @keyframes fromTop{from{transform:translateY(-110vh) rotate(-10deg) scale(.5)}}
+  @media (prefers-reduced-motion:reduce){#fly .card,.item.new{animation:none}}
+</style>
 </head>
 <body>
-<main style="max-width:480px;margin:14vh auto;padding:0 20px;display:flex;flex-direction:column;gap:18px">
-  <img src="../assets/icon.svg" alt="" width="72" height="72">
-  <h1 style="font-size:34px;font-weight:800">Ẹ káàbọ̀ · You are welcome</h1>
-  <p class="muted" style="font-size:17px">Check-in for this session opens soon. Please follow your facilitator's instructions.</p>
+<main class="p">
+  <div class="ptop"><a class="brand" href="../" data-logo="30" aria-label="Training Suite"><b style="font-size:16px">Training Suite</b></a><span class="live" id="live" hidden><i></i><span>Connecting…</span></span></div>
+
+  <div class="sesshead" id="head" hidden>
+    <span class="lbl" id="hProg"></span>
+    <h1 id="hTopic"></h1>
+    <span class="muted small" id="hMeta"></span>
+  </div>
+  <p class="note warn" id="note" hidden></p>
+
+  <!-- returning participant: one tap -->
+  <section id="again" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="me"><span class="ph" id="aPh"></span><div><span class="lbl">Welcome back</span><b id="aName"></b></div></div>
+    <button class="btn red" type="button" id="aGo">Check me in</button>
+    <button class="btn ghost small" type="button" id="aNot" style="align-self:flex-start">This isn't me</button>
+    <div class="err" id="aErr" role="alert"></div>
+  </section>
+
+  <!-- check-in form -->
+  <form id="form" hidden novalidate style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="font-size:26px;font-weight:800"><span lang="yo">Ẹ káàbọ̀</span> <span class="muted" style="font-family:var(--body);font-weight:500;font-size:16px">· You are welcome</span></h2>
+    <div class="fld" role="group" aria-labelledby="tl"><span id="tl">Title</span><div class="titles" id="titles"></div></div>
+    <label class="fld" for="fName">Full name<span class="hint">Write it exactly as you want it on your certificate.</span><input id="fName" autocomplete="name" placeholder="e.g. Babajide Arulogun"></label>
+    <div class="certprev" id="prev" hidden><span>On your certificate</span><b id="prevName"></b></div>
+    <label class="fld" for="fEmail">Email<span class="hint">Your certificate and results will be sent here.</span><input id="fEmail" type="email" inputmode="email" autocomplete="email"></label>
+    <label class="fld" for="fOrg">Organisation / MDA<input id="fOrg" autocomplete="organization" placeholder="Ministry, department, agency or company"></label>
+    <div class="fld"><span>Your photo</span>
+      <div class="cam"><div class="ring" id="ring"><span id="camMsg">Starting camera…</span><video id="video" playsinline muted autoplay hidden></video><img id="still" alt="Your photo" hidden></div>
+        <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:160px"><span class="small muted">Look at the camera. Your photo is taken when you tap Check me in.</span>
+          <label class="btn ghost small" for="fPhoto" id="pickLbl" hidden style="align-self:flex-start">Take photo instead</label><input type="file" id="fPhoto" accept="image/*" capture="user" hidden></div></div></div>
+    <label class="consent"><input type="checkbox" id="fConsent"><span>I agree that my name, organisation and photo will be shown on the welcome screen and kept in this programme's register.</span></label>
+    <div class="err" id="fErr" role="alert"></div>
+    <button class="btn red" type="submit" id="fGo">Check me in</button>
+  </form>
+
+  <!-- the room -->
+  <section id="room" hidden style="display:flex;flex-direction:column;gap:18px">
+    <div class="me"><span class="ph" id="rPh"></span><div><span class="lbl">You're checked in</span><b id="rName"></b><span class="small muted" id="rIn"></span></div></div>
+    <div class="fld"><span>Your group <span class="hint" style="display:inline">(if the facilitator gave you one)</span></span>
+      <div class="groups" id="groups" role="group" aria-label="Your group"><button type="button" data-g="A">Group A</button><button type="button" data-g="all">No group</button><button type="button" data-g="B">Group B</button></div></div>
+    <div class="now" id="now"><span class="lbl">On the screen</span><b id="nowTxt">Waiting for the session to start</b></div>
+    <div style="display:flex;flex-direction:column;gap:10px"><h2 style="font-size:20px">My items</h2><div class="items" id="items"></div></div>
+  </section>
+
+  <section id="bye" class="bye" hidden>
+    <img src="../assets/icon.svg" alt="" width="64" height="64">
+    <h1><span lang="yo">Ó dàbọ̀</span> · Goodbye</h1>
+    <p class="muted" style="font-size:17px">You've tapped out. Thank you for attending. Your items stay on this page.</p>
+    <button class="btn ghost" type="button" id="byeRoom">Back to my items</button>
+  </section>
 </main>
+<div class="dock" id="dock" hidden><button class="btn ghost" type="button" id="outBtn">Tap out</button></div>
+<div id="fly" hidden><div class="card" id="flyCard"></div></div>
+
+<script src="../config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="checkin.js"></script>
 </body>
 </html>

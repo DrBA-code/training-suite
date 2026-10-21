@@ -156,7 +156,7 @@
     $("meRole").textContent = (profile.role === "programme_lead" ? "Programme Lead" : "Course Lead") + (profile.plan ? " · " + profile.plan : "");
     document.querySelectorAll("#mainNav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === r || (r === "session" && a.dataset.nav === "sessions") ? "page" : "false"));
     if (!loaded) await loadData();
-    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), library: () => viewSoon("Library", "Collections of ready-made questions, case studies, slides and evaluation templates you can drop into any session."), reports: () => viewSoon("Reports", "Cross-session reports for your programmes: attendance, learning achievement and evaluation, ready to print or send."), settings: viewSettings };
+    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), present: () => viewPresent(arg), library: () => viewSoon("Library", "Collections of ready-made questions, case studies, slides and evaluation templates you can drop into any session."), reports: () => viewSoon("Reports", "Cross-session reports for your programmes: attendance, learning achievement and evaluation, ready to print or send."), settings: viewSettings };
     (V[r] || viewDashboard)();
     $("view").focus({ preventScroll: true }); scrollTo({ top: 0 });
   }
@@ -514,19 +514,21 @@
         <div class="confirm" style="border-color:var(--line-2)"><b>Delete this session</b><span class="small muted">Removes the session, its files and its results. Type the topic to confirm.</span><div class="row"><input class="in" id="delIn" style="max-width:360px" autocomplete="off" aria-label="Session topic"><button class="btn danger small" type="button" id="delGo">Delete session</button><span class="err" id="delErr"></span></div></div>`;
     } else if (sessTab === "attendance") {
       body = `<div class="row" style="gap:24px;align-items:center;border:1.5px solid var(--ink);padding:22px"><div class="qr">${qrSvg(checkinLink(s.attendance_code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Check-in code</span><span class="code">${esc(s.attendance_code)}</span><span class="small" style="font-family:var(--mono);word-break:break-all">${esc(checkinLink(s.attendance_code))}</span><button class="btn ghost small" type="button" id="copyLink" style="align-self:flex-start">Copy link</button></div></div>
-        <p class="muted">The register (photos, emails, time in and out, Excel export) fills in here once check-in opens in the next phase.</p>`;
+        <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Register <span class="muted" id="regN" style="font-family:var(--body);font-weight:500;font-size:16px"></span></h2><div class="row"><button class="btn ghost small" type="button" id="regRefresh">Refresh</button><button class="btn small" type="button" id="regCsv">Download (Excel/CSV)</button></div></div>
+        <div class="tablewrap"><table class="t" id="regTable"><tbody><tr><td class="muted">Loading…</td></tr></tbody></table></div>`;
     } else {
       const M = { assess: "Quizzes, polls and other activities you run in this session, with their results.", learning: "Each participant's pre-test and post-test scores and learning achievement.", evaluation: "Reaction and learning scores, per-item results and an AI summary of comments. Collapsed sections, like the dashboard.", certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
     }
     V(`<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
         <div class="row"><span class="badge ${sc}" style="padding:10px 14px">${st}</span><a class="btn ghost small" href="#/edit/${s.id}">Edit</a>
-        ${s.status === "completed" ? "" : s.status === "live" ? `<button class="btn ghost small" type="button" id="stopRun">Stop</button>` : `<button class="btn red" type="button" id="startRun">▶ Start session</button>`}</div></div>
+        ${s.status === "completed" ? `<a class="btn ghost small" href="#/present/${s.id}">Open live screen</a>` : s.status === "live" ? `<a class="btn red" href="#/present/${s.id}">▶ Back to live screen</a><button class="btn ghost small" type="button" id="stopRun">Stop</button>` : `<button class="btn red" type="button" id="startRun">▶ Start session</button>`}</div></div>
       <div class="tabbar" role="tablist" aria-label="Session">${T.map(([k, n]) => `<button type="button" role="tab" aria-selected="${sessTab === k}" data-stab="${k}">${n}</button>`).join("")}</div>${body}`);
     const v = $("view");
     v.querySelectorAll("[data-stab]").forEach(b => b.addEventListener("click", () => { sessTab = b.dataset.stab; viewSession(id); }));
     const save = async patch => { const { data, error } = await sb.from("sessions").update(patch).eq("id", id).select().single(); if (error) return toast(errText(error, "Couldn't update.")); sessions = sessions.map(x => x.id === id ? data : x); viewSession(id); };
-    $("startRun")?.addEventListener("click", () => { sessTab = "run"; save({ status: "live", progress: 0 }); });
+    $("startRun")?.addEventListener("click", async () => { await save({ status: "live", progress: 0 }); location.hash = "#/present/" + id; });
+    if (sessTab === "attendance") loadRegister(s);
     $("stopRun")?.addEventListener("click", () => save({ status: "ready", progress: 0 }));
     $("markDone")?.addEventListener("click", () => { const n = s.progress + 1; save(n >= steps.length ? { status: "completed", progress: steps.length } : { progress: n }); });
     $("copyLink")?.addEventListener("click", async () => { try { await navigator.clipboard.writeText(checkinLink(s.attendance_code)); toast("Link copied"); } catch { toast(checkinLink(s.attendance_code)); } });
@@ -542,6 +544,237 @@
       sessions = sessions.filter(x => x.id !== id); toast("Session deleted"); location.hash = "#/sessions";
     });
   }
+
+  // ---------- register (Attendance tab) ----------
+  const fmtT = t => t ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  const dur = (a, b) => { if (!a || !b) return ""; const m = Math.round((new Date(b) - new Date(a)) / 60000); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
+  const pName = r => (r.title ? (r.title === "Miss" || r.title === "Ms" ? r.title + " " : r.title + ". ") : "") + r.name;
+  async function loadRegister(s) {
+    const draw = async () => {
+      const { data, error } = await sb.rpc("session_roll", { p_session: s.id });
+      const t = $("regTable"); if (!t) return;
+      if (error) { t.innerHTML = `<tbody><tr><td class="muted">${esc(errText(error, "Couldn't load the register.")).replace("schema.sql", "schema-2-participants.sql")}</td></tr></tbody>`; return; }
+      const rows = data || [];
+      $("regN").textContent = `· ${rows.length} checked in · ${rows.filter(r => r.left_at).length} tapped out`;
+      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>In</th><th>Out</th><th>Time</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td><td><b>${esc(pName(r))}</b></td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td><td>${fmtT(r.arrived_at)}</td><td>${fmtT(r.left_at) || "–"}</td><td>${dur(r.arrived_at, r.left_at) || "–"}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
+      $("regCsv").onclick = () => {
+        const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const p = progs.find(x => x.id === s.programme_id) || {};
+        const lines = [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [], ["#", "Title", "Name", "Email", "Organisation", "Time in", "Time out", "Duration", "Photo"],
+          ...rows.map((r, i) => [i + 1, r.title, r.name, r.email, r.organisation, fmtT(r.arrived_at), fmtT(r.left_at), dur(r.arrived_at, r.left_at), r.photo])].map(r => r.map(q).join(",")).join("\r\n");
+        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + lines], { type: "text/csv;charset=utf-8" }));
+        a.download = `Register - ${s.topic.replace(/[\\/:*?"<>|]/g, "-").slice(0, 60)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      };
+    };
+    $("regRefresh").onclick = draw;
+    draw();
+  }
+
+  // ---------- LIVE: one flow of welcome, slides and activities ----------
+  let P = null;
+  const CARD = { pretest: ["Pre-test", "Where everyone starts"], posttest: ["Post-test", "What was learned"], evaluation: ["Session evaluation", "How it landed"], certificates: ["Certificates", "For the programme"], train: ["Training", "No slides uploaded for this session"] };
+  function buildFlow(s) {
+    const it = [{ t: "welcome", label: "Check-in and welcome" }];
+    if (s.pre_test) it.push({ t: "card", key: "pretest", label: "Pre-test" });
+    const sc = s.slide_count || 0, flow = [...(s.flow || [])].filter(f => TOOL[f.tool]).sort((a, b) => a.after - b.after);
+    const act = f => ({ t: "tool", tool: f.tool, label: TOOL[f.tool].name });
+    flow.filter(f => f.after <= 0).forEach(f => it.push(act(f)));
+    if (!sc) { it.push({ t: "card", key: "train", label: "Training" }); flow.filter(f => f.after > 0).forEach(f => it.push(act(f))); }
+    for (let n = 1; n <= sc; n++) { it.push({ t: "slide", n, label: `Slide ${n} of ${sc}` }); flow.filter(f => f.after === n || (n === sc && f.after > sc)).forEach(f => it.push(act(f))); }
+    if ((s.tools || []).includes("exit")) it.push({ t: "tool", tool: "exit", label: "Exit ticket" });
+    if (s.post_test) it.push({ t: "card", key: "posttest", label: "Post-test" });
+    if ((s.evaluation || {}).mode !== "none") it.push({ t: "card", key: "evaluation", label: "Evaluation" });
+    const p = progs.find(x => x.id === s.programme_id);
+    if (p?.certificates && isLastInProgramme(s)) it.push({ t: "card", key: "certificates", label: "Certificates" });
+    return it;
+  }
+  async function viewPresent(id) {
+    const s = sessions.find(x => x.id === id);
+    if (!s) return V(`<p class="muted">Session not found. <a href="#/sessions">Back to sessions</a></p>`);
+    if (s.status === "ready" || s.status === "draft") {
+      const { data } = await sb.from("sessions").update({ status: "live" }).eq("id", id).select().single();
+      if (data) sessions = sessions.map(x => x.id === id ? data : x);
+    }
+    stopPresent();
+    P = { s, items: buildFlow(s), i: 0, pdf: null, roll: [], known: null, queue: [], showing: false, phones: 0, cache: {} };
+    $("shell").hidden = true; $("stage").hidden = false; document.body.style.overflow = "hidden";
+    $("stTitle").textContent = s.topic;
+    $("stStrip").innerHTML = P.items.map((x, n) => `<button type="button" data-go="${n}" class="sti ${x.t}" title="${esc(x.label)}">${x.t === "slide" ? x.n : esc(x.t === "welcome" ? "Welcome" : x.label)}</button>`).join("");
+    $("stStrip").onclick = e => { const b = e.target.closest("[data-go]"); if (b) goItem(+b.dataset.go); };
+    const slides = (s.files || []).find(f => f.kind === "slides");
+    if (slides) loadPdf(slides.path);
+    P.channel = sb.channel("ts-" + s.attendance_code, { config: { broadcast: { self: false }, presence: { key: "presenter-" + crypto.randomUUID() } } });
+    P.channel.on("presence", { event: "sync" }, () => { if (!P) return; P.phones = Object.keys(P.channel.presenceState()).filter(k => !k.startsWith("presenter-")).length; counts(); });
+    P.channel.on("broadcast", { event: "checkin" }, () => refreshRoll(true));
+    P.channel.subscribe(st => { if (st === "SUBSCRIBED") sayNow(); });
+    P.nowTimer = setInterval(sayNow, 10000);
+    P.rollTimer = setInterval(() => refreshRoll(true), 8000);
+    await refreshRoll(false);
+    goItem(0);
+    poke();
+  }
+  function stopPresent() {
+    if (!P) return;
+    clearInterval(P.nowTimer); clearInterval(P.rollTimer);
+    if (P.channel) sb.removeChannel ? sb.removeChannel(P.channel) : P.channel.unsubscribe?.();
+    P = null;
+  }
+  function exitPresent(to) {
+    const id = P?.s.id; stopPresent();
+    $("stage").hidden = true; document.body.style.overflow = "";
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    location.hash = to || "#/session/" + id;
+  }
+  addEventListener("hashchange", () => { if (P && !/^#\/present\//.test(location.hash)) { stopPresent(); $("stage").hidden = true; document.body.style.overflow = ""; } });
+  async function loadPdf(path) {
+    try {
+      const { data, error } = await sb.storage.from("session-files").createSignedUrl(path, 4 * 3600);
+      if (error) throw error;
+      if (!window.pdfjsLib) await new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "vendor/pdf.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+      const doc = await window.pdfjsLib.getDocument(data.signedUrl).promise;
+      if (!P) return;
+      P.pdf = doc; if (P.items[P.i]?.t === "slide") draw();
+    } catch { if (P) { P.pdfErr = true; if (P.items[P.i]?.t === "slide") draw(); } }
+  }
+  async function refreshRoll(announce) {
+    if (!P) return;
+    const { data } = await sb.rpc("session_roll", { p_session: P.s.id });
+    if (!P || !Array.isArray(data)) return;
+    const known = P.known || new Set(data.map(r => r.id));
+    if (P.known && announce) data.filter(r => !known.has(r.id)).forEach(r => P.queue.push(r));
+    data.forEach(r => known.add(r.id)); P.known = known; P.roll = data;
+    counts();
+    if (P.items[P.i]?.t === "welcome") { drawWelcome(); nextArrival(); }
+  }
+  function counts() {
+    if (!P) return;
+    const inRoom = P.roll.filter(r => !r.left_at).length;
+    $("stCounts").textContent = `${inRoom} checked in · ${P.phones} phone${P.phones === 1 ? "" : "s"} connected`;
+  }
+  function sayNow() { if (P?.channel) P.channel.send({ type: "broadcast", event: "now", payload: { label: P.items[P.i].t === "welcome" ? "Welcome. The session starts soon" : P.items[P.i].label } }); }
+  function goItem(n) {
+    if (!P) return;
+    P.i = Math.max(0, Math.min(P.items.length - 1, n));
+    const it = P.items[P.i];
+    $("stPos").textContent = `${P.i + 1} of ${P.items.length}`;
+    $("stKind").textContent = it.t === "slide" ? "Training" : it.t === "welcome" ? "Check-in" : it.label;
+    $("stNext").textContent = P.i < P.items.length - 1 ? "Next: " + P.items[P.i + 1].label + " ▶" : "Finish session ✓";
+    $("stShareSlide").hidden = it.t !== "slide";
+    document.querySelectorAll("#stStrip [data-go]").forEach(b => { b.classList.toggle("on", +b.dataset.go === P.i); });
+    document.querySelector("#stStrip .on")?.scrollIntoView({ block: "nearest", inline: "center" });
+    draw(); sayNow();
+  }
+  function draw() {
+    const it = P.items[P.i], m = $("stMain");
+    if (it.t === "welcome") return drawWelcome();
+    if (it.t === "slide") {
+      if (!P.pdf) { m.innerHTML = `<div class="st-card"><span class="lbl" style="color:var(--yellow)">Slide ${it.n}</span><b>${P.pdfErr ? "Couldn't open your slides." : "Loading your slides…"}</b></div>`; return; }
+      m.innerHTML = `<canvas id="stCanvas" aria-label="Slide ${it.n}"></canvas>`;
+      const n = it.n, token = (P.drawToken = (P.drawToken || 0) + 1);
+      P.pdf.getPage(n).then(page => {
+        if (!P || token !== P.drawToken) return;
+        const box = m.getBoundingClientRect(), v1 = page.getViewport({ scale: 1 });
+        const sc = Math.min(box.width / v1.width, box.height / v1.height), dpr = Math.min(2, window.devicePixelRatio || 1);
+        const vp = page.getViewport({ scale: sc * dpr }), c = $("stCanvas");
+        c.width = vp.width; c.height = vp.height; c.style.width = vp.width / dpr + "px"; c.style.height = vp.height / dpr + "px";
+        page.render({ canvasContext: c.getContext("2d"), viewport: vp });
+      });
+      return;
+    }
+    const tool = it.t === "tool" ? TOOL[it.tool] : null, card = CARD[it.key] || [it.label, ""];
+    m.innerHTML = `<div class="st-card"><span class="sq" style="background:${tool ? tool.color : it.key === "certificates" ? "#F4B400" : "#D2391F"}"></span><span class="lbl" style="color:var(--yellow)">${tool ? "Activity" : "Next up"}</span><b>${esc(tool ? tool.name : card[0])}</b><span>${esc(tool ? tool.line : card[1])}</span><span class="soon">This runs live on phones in the next update of Training Suite.</span></div>`;
+  }
+  function drawWelcome() {
+    const m = $("stMain"), code = P.s.attendance_code, link = checkinLink(code), here = P.roll.filter(r => !r.left_at);
+    m.innerHTML = `<div class="st-welcome"><div class="st-scan"><div class="qr big">${qrSvg(link)}</div><span class="lbl" style="color:#8FA69B">Scan to check in</span><span class="code" style="color:#fff">${esc(code)}</span><span class="small" style="color:#8FA69B;word-break:break-all">${esc(link)}</span></div>
+      <div class="st-roll"><div class="st-hello"><span lang="yo">Ẹ káàbọ̀</span> · You are welcome</div><h2>${esc(P.s.topic)}</h2>
+      <div class="faces">${here.slice(-40).reverse().map(r => `<figure>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : `<span>${esc((r.name || "?")[0])}</span>`}<figcaption>${esc(pName(r))}</figcaption></figure>`).join("") || `<p style="color:#8FA69B">Arrivals appear here.</p>`}</div></div></div>`;
+  }
+  function nextArrival() {
+    if (!P || P.showing || !P.queue.length || P.items[P.i]?.t !== "welcome") return;
+    const r = P.queue.shift(); P.showing = true;
+    const o = $("stArrive");
+    o.innerHTML = `<div class="arr">${r.photo ? `<img src="${esc(r.photo)}" alt="">` : `<span class="ini">${esc((r.name || "?")[0])}</span>`}<div class="st-hello"><span lang="yo">Ẹ káàbọ̀</span> · You are welcome</div><b>${esc(pName(r))}</b><span>${esc(r.organisation || "")}</span></div>`;
+    o.hidden = false;
+    setTimeout(() => { o.hidden = true; if (P) { P.showing = false; nextArrival(); } }, 3800);
+  }
+  // Sharing: copy into the public share bucket, record it, and tell the phones.
+  async function publishFile(f) {
+    if (P.cache[f.path]) return P.cache[f.path];
+    const { data, error } = await sb.storage.from("session-files").createSignedUrl(f.path, 600);
+    if (error) throw error;
+    const blob = await (await fetch(data.signedUrl)).blob();
+    const dest = `${profile.id}/${P.s.id}/${crypto.randomUUID()}-${f.name.replace(/[^\w.\-]+/g, "_").slice(-80)}`;
+    const up = await sb.storage.from("ts-shared").upload(dest, blob, { contentType: f.type || blob.type || "application/octet-stream" });
+    if (up.error) throw up.error;
+    return (P.cache[f.path] = sb.storage.from("ts-shared").getPublicUrl(dest).data.publicUrl);
+  }
+  async function share(kind, name, url, target) {
+    const { data, error } = await sb.from("shared_items").insert({ session_id: P.s.id, kind, name, url, target }).select().single();
+    if (error) throw error;
+    P.channel.send({ type: "broadcast", event: "share", payload: { id: data.id, target } });
+    return data;
+  }
+  function openShare() {
+    const files = (P.s.files || []).filter(f => f.kind === "share");
+    const tg = n => `<div class="row"><button class="btn ghost small" type="button" data-sh="${n}" data-t="A">← Group A</button><button class="btn red small" type="button" data-sh="${n}" data-t="all">Everyone</button><button class="btn ghost small" type="button" data-sh="${n}" data-t="B">Group B →</button></div>`;
+    $("stShare").innerHTML = `<div class="row" style="justify-content:space-between"><b style="font-family:var(--display);font-size:18px">Share with the room</b><button type="button" class="x" id="shX" aria-label="Close">×</button></div>
+      ${P.items[P.i].t === "slide" ? `<div class="shrow"><b>This slide (${P.items[P.i].n})</b>${tg("slide")}</div>` : ""}
+      ${files.map((f, n) => `<div class="shrow"><b>${esc(f.name)}</b>${tg(n)}</div>`).join("") || `<p class="small muted">No files preloaded. Add them on the session's Slides step.</p>`}
+      <span class="err" id="shMsg" role="status"></span>`;
+    $("stShare").hidden = false;
+    $("shX").onclick = () => ($("stShare").hidden = true);
+    $("stShare").querySelectorAll("[data-sh]").forEach(b => b.addEventListener("click", async () => {
+      const msg = $("shMsg"); msg.textContent = "Sharing…";
+      try {
+        if (b.dataset.sh === "slide") await shareSlide(b.dataset.t);
+        else { const f = files[+b.dataset.sh]; await share("file", f.name, await publishFile(f), b.dataset.t); }
+        msg.textContent = `Sent to ${b.dataset.t === "all" ? "everyone" : "Group " + b.dataset.t} ✓`;
+      } catch (e) { msg.textContent = errText(e, "Couldn't share.").replace("schema.sql", "schema-2-participants.sql"); }
+    }));
+  }
+  async function shareSlide(target) {
+    const n = P.items[P.i].n; if (!P.pdf) throw new Error("Slides are still loading.");
+    const page = await P.pdf.getPage(n), v1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 1600 / v1.width });
+    const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport: vp }).promise;
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+    const dest = `${profile.id}/${P.s.id}/slide-${n}-${crypto.randomUUID()}.jpg`;
+    const up = await sb.storage.from("ts-shared").upload(dest, blob, { contentType: "image/jpeg" });
+    if (up.error) throw up.error;
+    await share("slide", `Slide ${n}`, sb.storage.from("ts-shared").getPublicUrl(dest).data.publicUrl, target);
+  }
+  async function finishSession() {
+    if (!P) return;
+    const b = $("stNext");
+    if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to finish the session"; setTimeout(() => { if (P) { b.dataset.sure = ""; goItem(P.i); } }, 4000); return; }
+    const id = P.s.id;
+    const { data } = await sb.from("sessions").update({ status: "completed", progress: 999 }).eq("id", id).select().single();
+    if (data) sessions = sessions.map(x => x.id === id ? data : x);
+    exitPresent("#/session/" + id);
+    toast("Session completed");
+  }
+  $("stPrev").addEventListener("click", () => P && goItem(P.i - 1));
+  $("stNext").addEventListener("click", () => { if (!P) return; if (P.i >= P.items.length - 1) finishSession(); else goItem(P.i + 1); });
+  $("stShareBtn").addEventListener("click", () => P && openShare());
+  $("stShareSlide").addEventListener("click", () => { if (!P) return; openShare(); });
+  $("stFs").addEventListener("click", () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else $("stage").requestFullscreen?.().catch(() => {}); });
+  $("stExit").addEventListener("click", () => exitPresent());
+  document.addEventListener("keydown", e => {
+    if (!P || $("stage").hidden || e.target.closest("input,textarea,select")) return;
+    if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); if (P.i < P.items.length - 1) goItem(P.i + 1); }
+    else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); goItem(P.i - 1); }
+    else if (e.key === "f" || e.key === "F") $("stFs").click();
+    else if (e.key === "Escape" && !$("stShare").hidden) $("stShare").hidden = true;
+    poke();
+  });
+  let pokeT = null;
+  function poke() { $("stDock").classList.remove("idle"); clearTimeout(pokeT); pokeT = setTimeout(() => $("stDock").classList.add("idle"), 4000); }
+  $("stage").addEventListener("mousemove", poke);
+  addEventListener("resize", () => { if (P && P.items[P.i]?.t === "slide") draw(); });
+
 
   // ---------- simple pages ----------
   function viewSoon(title, line) { V(head(title, title) + `<div class="empty">${LOGO(90)}<div><h2>Coming soon</h2><p class="muted" style="max-width:56ch">${esc(line)}</p></div></div>`); }

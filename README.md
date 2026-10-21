@@ -14,10 +14,15 @@ Static site (no build step) on Vercel; accounts, data and files in Supabase.
 - **New session**, 8 steps: programme and topic (date, objectives) → attendance code, QR and tests → slides and files to share → engagement → assessment → evaluation → certificate → flow (activities placed after slide N).
 - **Session page:** run sheet (start, mark done, finish), details, attendance code and QR, files, delete.
 
-Next phases: check-in and the live flow (slides and activities in one sequence, Share file, grab and throw), assessments, evaluation and pre/post learning achievement, certificates.
+## Phase 2
+- **Participants' phones** (`/checkin/#CODE`, the session's QR code): title, name exactly as on the certificate (with a preview), email, organisation, photo and consent. People are matched by email within a programme, so day 2 is one tap. After check-in the page becomes their **session room**: what's on the screen now, their group (A / B), *My items* (files and slides shared with them, with a fly-in alert) and **Tap out**.
+- **Live screen** (Start session): one flow of welcome → pre-test → slides with activities after slide N → exit ticket → post-test → evaluation → certificates. The welcome screen shows the QR code, arrivals with *Ẹ káàbọ̀* and a wall of faces. Slides render from the uploaded PDF. **Share file** and **Share this slide** send to everyone, Group A or Group B. Keys: → / Space next, ← back, F full screen.
+- **Register** on the session's Attendance tab: photo, name, email, organisation, time in / out, duration, CSV.
+
+Next: gestures and the phone remote on the live screen, the activities running live (polls, quizzes, wheel…), evaluation and pre/post learning achievement, certificates.
 
 ## Setup
-1. **Database:** Supabase → SQL Editor → New query → paste `supabase/schema.sql` → Run.
+1. **Database:** Supabase → SQL Editor → New query → paste `supabase/schema.sql` → Run. Then do the same with `supabase/schema-2-participants.sql`.
 2. **Auth:** Supabase → Authentication → Sign In / Providers → Email → turn off *Confirm email* (approval is the gate). Under URL Configuration set the Site URL to the Vercel address.
 3. **Super Admin:** request access on the site with the admin email, then run the last line of `schema.sql` (the one marked SUPER ADMIN). That account then signs in at `/admin/`. It can't be used as a trainer account; use another email for training.
 4. **Hosting:** Vercel → import this repository → Framework preset *Other*, no build command.

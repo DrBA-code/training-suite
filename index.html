@@ -122,6 +122,19 @@
   <main class="view" id="view" tabindex="-1"></main>
 </div>
 
+<!-- LIVE SCREEN (projector) -->
+<section class="stage" id="stage" hidden>
+  <div class="st-top"><div class="row" style="gap:14px"><span class="lbl" style="color:var(--yellow)" id="stKind"></span><span class="st-mono" id="stTitle"></span><span class="st-mono" id="stPos"></span></div><span class="st-mono" id="stCounts"></span></div>
+  <div class="st-main" id="stMain"></div>
+  <div class="st-strip" id="stStrip"></div>
+  <div class="st-dock" id="stDock">
+    <div class="row" style="gap:6px"><button class="key" type="button" id="stPrev" aria-label="Previous">◀</button><button class="key next" type="button" id="stNext">Next ▶</button></div>
+    <div class="row" style="gap:6px"><button class="key" type="button" id="stShareBtn">Share file</button><button class="key" type="button" id="stShareSlide" hidden>Share this slide</button><button class="key" type="button" id="stFs">Full screen</button><button class="key" type="button" id="stExit">Exit</button></div>
+  </div>
+  <div class="st-share" id="stShare" hidden></div>
+  <div class="st-arrive" id="stArrive" hidden></div>
+</section>
+
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="config.js"></script>
