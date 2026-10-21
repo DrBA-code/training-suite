@@ -1,4 +1,5 @@
-// Participant's phone: check in (or one-tap check in again), then the session room; tap out at the end.
+// Participant's phone: check in (or one-tap check in again), then the session room: answer live activities,
+// see shared items and your learning achievement; tap out at the end.
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
@@ -114,6 +115,8 @@
     await loadItems(); render(false);
     if (channel) return;
     channel = sb.channel("ts-" + code, { config: { broadcast: { self: false }, presence: { key: crypto.randomUUID() } } });
+    channel.on("broadcast", { event: "live" }, () => refreshLive());
+    channel.on("broadcast", { event: "winner" }, ({ payload }) => { if (payload?.name) $("nowTxt").textContent = payload.name + " caught it first!"; });
     channel.on("broadcast", { event: "now" }, ({ payload }) => { $("nowTxt").textContent = payload?.label || "The session is on"; });
     channel.on("broadcast", { event: "share" }, async ({ payload }) => {
       if (payload && payload.target && payload.target !== "all" && group !== "all" && payload.target !== group) return;
@@ -125,7 +128,9 @@
       if (st === "SUBSCRIBED") { l.classList.add("on"); l.lastElementChild.textContent = "Connected"; channel.track({ group, name: me.name }); if (justIn) channel.send({ type: "broadcast", event: "checkin", payload: {} }); }
       else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT") { l.classList.remove("on"); l.lastElementChild.textContent = "Reconnecting…"; }
     });
-    document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await loadItems(); render(false); } });
+    document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await loadItems(); render(false); refreshLive(true); } });
+    setInterval(() => { if (!document.hidden && !$("room").hidden) refreshLive(); }, 5000);
+    refreshLive(true); loadLearning();
   }
   async function loadItems() {
     const { data } = await sb.rpc("room_items", { p_code: code, p_token: me.token });
@@ -149,6 +154,130 @@
   }
   function pickGroup(g) { group = g; store.set("ts_group_" + code, g); document.querySelectorAll("#groups button").forEach(b => b.setAttribute("aria-pressed", b.dataset.g === g)); channel?.track({ group, name: me?.name }); }
   $("groups").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { pickGroup(b.dataset.g); render(false); } });
+
+  // ---------- live activities ----------
+  const LET = "ABCDEF", COL = ["#F4B400", "#3FB98A", "#5AA9E6", "#F2786F", "#B48EF0", "#F0A35E"];
+  const NAMES = { poll: "Live poll", words: "Word cloud", quiz: "Quiz", buzz: "First to catch", battle: "Group battle", order: "Order it", match: "Match it", spot: "Spot the error", case: "Case study", exit: "Exit ticket", test: "Test" };
+  let cur = null, lastKey = "", draft = null, deadline = 0, sending = false, lastRun = "";
+  async function refreshLive(force) {
+    if (!me) return;
+    const { data } = await sb.rpc("room_current", { p_code: code, p_token: me.token });
+    if (!data) return;
+    const key = data.phase === "idle" ? "idle" : [data.activity, data.run, data.step, data.phase, data.mine ? 1 : 0].join("|");
+    if (key === lastKey && !force) return;
+    const moved = !cur || data.activity !== cur.activity || data.run !== cur.run || data.step !== cur.step;
+    if (lastRun === "post" && (data.run !== "post" || data.phase !== "open")) loadLearning();
+    lastRun = data.phase === "idle" ? "" : data.run;
+    lastKey = key; cur = data;
+    if (moved || data.phase !== "open") draft = null;
+    deadline = data.phase === "open" && data.left != null ? Date.now() + data.left * 1000 : 0;
+    if (moved && data.phase === "open") buzz(30);
+    drawAct();
+  }
+  const testName = c => c.kind === "test" ? (c.run === "pre" ? "Pre-test" : "Post-test") : (c.title || NAMES[c.kind]);
+  function drawAct() {
+    const box = $("act");
+    if (!cur || cur.phase === "idle") { box.hidden = true; box.innerHTML = ""; return; }
+    const c = cur, q = c.q || {}, mine = c.mine, open = c.phase === "open" && !mine, rev = c.phase === "reveal";
+    let body = "";
+    if (c.kind === "case" && q.text) body += `<div class="case">${esc(q.text)}</div>`;
+    if (open) body += answerUi(c, q);
+    else if (!rev) body += mine ? `<p class="res">Answer sent ✓</p><p class="muted">${c.kind === "buzz" ? "Fingers crossed. Watch the screen." : "Watch the screen for the results."}</p>${mineView(c, q, mine)}` : `<p class="res bad">Time's up</p><p class="muted">Answers are closed for this question.</p>`;
+    else body += revealView(c, q, mine);
+    const step = c.steps > 1 ? `${c.step + 1} of ${c.steps}` : "";
+    box.innerHTML = `<div class="ah"><span class="lbl" style="color:var(--red)">${esc(testName(c))}</span><span class="small muted" style="font-family:var(--mono)">${step}<span id="tLeft"></span></span></div>
+      ${deadline && open ? `<div class="tm" id="tm"><i></i></div>` : ""}<h2>${esc(q.q || "")}</h2>${body}<div class="err" id="actErr" role="alert"></div>`;
+    box.hidden = false;
+    wireAnswer(c, q);
+  }
+  setInterval(() => {
+    const tm = $("tm"); if (!tm || !deadline || !cur) return;
+    const left = Math.max(0, deadline - Date.now()), total = (cur.seconds || 1) * 1000;
+    tm.firstElementChild.style.transform = `scaleX(${left / total})`; tm.classList.toggle("low", left < 5000);
+    const t = $("tLeft"); if (t) t.textContent = ` · ${Math.ceil(left / 1000)}s`;
+    if (left <= 0) { deadline = 0; setTimeout(() => refreshLive(true), 1200); }
+  }, 250);
+  function answerUi(c, q) {
+    const k = c.kind;
+    if (q.options) return `<div class="ch">${q.options.map((o, i) => `<button type="button" data-i="${i}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>
+      ${c.teams && group === "all" ? `<p class="small muted">Pick Group A or Group B below so your points count for your group.</p>` : ""}`;
+    if (k === "words") return `${Array.from({ length: q.max || 1 }, (_, i) => `<input class="wi" maxlength="40" data-w="${i}" placeholder="${(q.max || 1) > 1 ? "Answer " + (i + 1) : "One or two words"}" autocomplete="off">`).join("")}<button class="btn red" type="button" id="aSend">Send</button>`;
+    if (k === "order") { draft = draft || [...q.items]; return `<p class="small muted">Use the arrows to put them in the right order, top first.</p><div class="ord" id="ord">${ordRows()}</div><button class="btn red" type="button" id="aSend">Send my order</button>`; }
+    if (k === "match") return `<div class="mt">${q.lefts.map((l, i) => `<label>${esc(l)}<select data-m="${i}"><option value="">Choose…</option>${q.rights.map(r => `<option>${esc(r)}</option>`).join("")}</select></label>`).join("")}</div><button class="btn red" type="button" id="aSend">Send my matches</button>`;
+    if (k === "spot") return `<p class="small muted">Tap where the error is, then send.</p><div class="sp" id="sp"><img src="${esc(q.image)}" alt="Find the error">${draft ? `<span class="dot" style="left:${draft.x * 100}%;top:${draft.y * 100}%"></span>` : ""}</div><button class="btn red" type="button" id="aSend" ${draft ? "" : "disabled"}>Send my tap</button>`;
+    return `<textarea id="aText" rows="${k === "case" ? 6 : 4}" maxlength="1500" placeholder="${k === "exit" ? "One thing I'll apply at my desk…" : "Your answer…"}"></textarea>${c.teams && group === "all" ? `<p class="small muted">Pick your group below so your answer counts for it.</p>` : ""}<button class="btn red" type="button" id="aSend">Send</button>`;
+  }
+  const ordRows = () => draft.map((it, i) => `<div><b>${i + 1}</b><span>${esc(it)}</span><button type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move up">↑</button><button type="button" data-dn="${i}" ${i === draft.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button></div>`).join("");
+  function wireAnswer(c, q) {
+    const box = $("act");
+    box.querySelectorAll(".ch button[data-i]").forEach(b => b.addEventListener("click", () => send({ i: +b.dataset.i })));
+    const ord = $("ord");
+    if (ord) ord.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      const i = +(b.dataset.up ?? b.dataset.dn), j = b.dataset.up != null ? i - 1 : i + 1;
+      [draft[i], draft[j]] = [draft[j], draft[i]]; ord.innerHTML = ordRows();
+    });
+    const sp = $("sp");
+    if (sp) sp.addEventListener("click", e => { const r = sp.getBoundingClientRect(); draft = { x: +((e.clientX - r.left) / r.width).toFixed(4), y: +((e.clientY - r.top) / r.height).toFixed(4) }; drawAct(); });
+    const go = $("aSend"); if (!go) return;
+    go.addEventListener("click", () => {
+      const k = c.kind, err = $("actErr");
+      if (k === "words") { const words = [...box.querySelectorAll("[data-w]")].map(i => i.value.trim()).filter(Boolean); if (!words.length) return (err.textContent = "Type a word or two."); return send({ words }); }
+      if (k === "order") return send({ items: draft });
+      if (k === "match") { const rights = [...box.querySelectorAll("[data-m]")].map(s => s.value); if (rights.some(x => !x)) return (err.textContent = "Match every item first."); return send({ rights }); }
+      if (k === "spot") return draft && send({ x: draft.x, y: draft.y });
+      const text = $("aText").value.trim(); if (!text) return (err.textContent = "Write your answer first."); send({ text });
+    });
+  }
+  async function send(answer) {
+    if (sending) return; sending = true;
+    $("act").querySelectorAll("button").forEach(b => (b.disabled = true));
+    const { data, error } = await sb.rpc("submit_answer", { p_code: code, p_token: me.token, p_grp: group, p_answer: answer });
+    sending = false;
+    if (error) {
+      if (/already answered|closed|Time is up/i.test(error.message)) return refreshLive(true);
+      $("act").querySelectorAll("button").forEach(b => (b.disabled = false));
+      const e = $("actErr"); if (e) e.textContent = "Couldn't send. Check the connection and try again."; return;
+    }
+    buzz(data?.rank === 1 ? [40, 60, 40, 60, 120] : 40);
+    channel?.send({ type: "broadcast", event: "answered", payload: {} });
+    cur = { ...cur, mine: { answer, score: data?.score, points: data?.points, rank: data?.rank } };
+    lastKey = [cur.activity, cur.run, cur.step, cur.phase, 1].join("|");
+    drawAct();
+  }
+  function mineView(c, q, mine) {
+    const a = mine.answer || {};
+    if (a.i != null && q.options) return `<div class="ch">${q.options.map((o, i) => `<button type="button" disabled class="${i === a.i ? "mine" : "wrong"}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>`;
+    if (a.words) return `<p><b>${a.words.map(esc).join(" · ")}</b></p>`;
+    if (a.text) return `<p class="case">${esc(a.text)}</p>`;
+    return "";
+  }
+  function revealView(c, q, mine) {
+    const a = mine?.answer || {}, scored = mine && mine.score != null;
+    let head = !mine ? `<p class="muted">You didn't answer this one.</p>` : scored ? (+mine.score === 1 ? `<p class="res good">Correct! +${mine.points} points</p>` : +mine.score > 0 ? `<p class="res">${Math.round(mine.score * 100)}% right · +${mine.points} points</p>` : `<p class="res bad">Not quite</p>`) : `<p class="res">Thanks for answering</p><p class="muted">The results are on the screen.</p>`;
+    if (q.options && q.correct != null) return head + `<div class="ch">${q.options.map((o, i) => `<button type="button" disabled class="${i === q.correct ? "right" : ""} ${i === a.i ? "mine" : i !== q.correct ? "wrong" : ""}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}${i === q.correct ? " ✓" : ""}</span></button>`).join("")}</div>`;
+    if (q.answer_items) return head + `<p class="small muted">The right order</p><div class="ord">${q.answer_items.map((it, i) => `<div style="grid-template-columns:28px 1fr"><b>${i + 1}</b><span>${esc(it)}${a.items && a.items[i] === it ? " ✓" : ""}</span></div>`).join("")}</div>`;
+    if (q.answer_pairs) return head + `<div class="ord">${q.answer_pairs.map((p, i) => `<div style="grid-template-columns:1fr"><span>${esc(p.l)} → <b>${esc(p.r)}</b>${a.rights && a.rights[i] === p.r ? " ✓" : ""}</span></div>`).join("")}</div>`;
+    if (q.region) return head + `<div class="sp"><img src="${esc(q.image)}" alt=""><span class="tgt" style="left:${q.region.x * 100}%;top:${q.region.y * 100}%;width:${q.region.r * 2 / (q.aspect || 1) * 100}%;aspect-ratio:1"></span>${a.x != null ? `<span class="dot" style="left:${a.x * 100}%;top:${a.y * 100}%"></span>` : ""}</div>`;
+    return head + (mine ? mineView(c, q, mine) : "");
+  }
+
+  // ---------- learning achievement (after the post-test) ----------
+  async function loadLearning() {
+    if (!me) return;
+    const { data } = await sb.rpc("my_learning", { p_code: code, p_token: me.token });
+    const box = $("learn");
+    if (!data || !data.took_post) { box.hidden = true; return; }
+    const pre = data.took_pre ? +data.pre : null, post = +data.post;
+    const ach = pre == null ? null : pre >= 100 ? (post >= 100 ? 1 : (post - 100) / 100) : (post - pre) / (100 - pre);
+    const msg = ach == null ? "You didn't take the pre-test, so we can't measure your progress this time." : ach >= 0.75 ? "Outstanding progress." : ach >= 0.5 ? "Strong progress." : ach > 0 ? "You moved forward. Keep practising." : "Talk to your facilitator about the topics you found hard.";
+    box.innerHTML = `<span class="lbl">Your learning achievement</span><span class="big">${ach == null ? post + "%" : Math.round(ach * 100) + "%"}</span>
+      ${ach != null ? `<div class="bar"><i style="width:${Math.max(0, Math.min(100, ach * 100))}%"></i></div>` : ""}
+      <div class="pp"><div><span class="small" style="color:#C9CEC6">Pre-test</span><b>${pre == null ? "–" : pre + "%"}</b></div><div><span class="small" style="color:#C9CEC6">Post-test</span><b>${post}%</b></div></div>
+      <span>${esc(msg)}</span><span class="small" style="color:#9AA0A8">Achievement = (post − pre) ÷ (100 − pre): how much of your room for improvement you closed.</span>`;
+    if (box.hidden) buzz([30, 40, 60]);
+    box.hidden = false;
+  }
 
   // ---------- tap out ----------
   $("outBtn").addEventListener("click", async () => {

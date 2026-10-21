@@ -29,6 +29,17 @@
   ];
   const TOOL = Object.fromEntries([...ENG, ...ASS].map(([id, name, line, color]) => [id, { id, name, line, color }]));
   const PLACEABLE = id => id !== "exit" && id !== "throw";   // throw is available all the time; exit ticket goes at the end
+  // Tools that need questions written (activities.js); "test" is the pre/post test.
+  const SLOTS = ["poll", "words", "quiz", "buzz", "battle", "order", "match", "spot", "case", "exit"];
+  const slotsOf = s => [...(s.pre_test || s.post_test ? ["test"] : []), ...SLOTS.filter(t => (s.tools || []).includes(t))];
+  const acts = {};   // session id → activities
+  async function loadActs(sid, fresh) {
+    if (acts[sid] && !fresh) return acts[sid];
+    const { data, error } = await sb.from("activities").select("*").eq("session_id", sid);
+    if (error) return null;
+    return (acts[sid] = data || []);
+  }
+  const achievement = (pre, post) => pre == null || post == null ? null : pre >= 100 ? (post >= 100 ? 1 : (post - 100) / 100) : (post - pre) / (100 - pre);
 
   let profile = null, progs = [], sessions = [], loaded = false;
 
@@ -516,8 +527,12 @@
       body = `<div class="row" style="gap:24px;align-items:center;border:1.5px solid var(--ink);padding:22px"><div class="qr">${qrSvg(checkinLink(s.attendance_code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Check-in code</span><span class="code">${esc(s.attendance_code)}</span><span class="small" style="font-family:var(--mono);word-break:break-all">${esc(checkinLink(s.attendance_code))}</span><button class="btn ghost small" type="button" id="copyLink" style="align-self:flex-start">Copy link</button></div></div>
         <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Register <span class="muted" id="regN" style="font-family:var(--body);font-weight:500;font-size:16px"></span></h2><div class="row"><button class="btn ghost small" type="button" id="regRefresh">Refresh</button><button class="btn small" type="button" id="regCsv">Download (Excel/CSV)</button></div></div>
         <div class="tablewrap"><table class="t" id="regTable"><tbody><tr><td class="muted">Loading…</td></tr></tbody></table></div>`;
+    } else if (sessTab === "assess") {
+      body = `<div id="actList"><p class="muted">Loading…</p></div>`;
+    } else if (sessTab === "learning") {
+      body = `<div id="learnBox"><p class="muted">Loading…</p></div>`;
     } else {
-      const M = { assess: "Quizzes, polls and other activities you run in this session, with their results.", learning: "Each participant's pre-test and post-test scores and learning achievement.", evaluation: "Reaction and learning scores, per-item results and an AI summary of comments. Collapsed sections, like the dashboard.", certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
+      const M = { evaluation: "Reaction and learning scores, per-item results and an AI summary of comments. Collapsed sections, like the dashboard.", certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
     }
     V(`<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
@@ -529,6 +544,8 @@
     const save = async patch => { const { data, error } = await sb.from("sessions").update(patch).eq("id", id).select().single(); if (error) return toast(errText(error, "Couldn't update.")); sessions = sessions.map(x => x.id === id ? data : x); viewSession(id); };
     $("startRun")?.addEventListener("click", async () => { await save({ status: "live", progress: 0 }); location.hash = "#/present/" + id; });
     if (sessTab === "attendance") loadRegister(s);
+    if (sessTab === "assess") drawActs(s);
+    if (sessTab === "learning") drawLearning(s);
     $("stopRun")?.addEventListener("click", () => save({ status: "ready", progress: 0 }));
     $("markDone")?.addEventListener("click", () => { const n = s.progress + 1; save(n >= steps.length ? { status: "completed", progress: steps.length } : { progress: n }); });
     $("copyLink")?.addEventListener("click", async () => { try { await navigator.clipboard.writeText(checkinLink(s.attendance_code)); toast("Link copied"); } catch { toast(checkinLink(s.attendance_code)); } });
@@ -570,6 +587,108 @@
     draw();
   }
 
+  // ---------- questions (Assessments tab) ----------
+  const csvDownload = (name, rows) => {
+    const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + rows.map(r => r.map(q).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
+    a.download = name.replace(/[\\/:*?"<>|]/g, "-").slice(0, 90) + ".csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  function whereInFlow(s, slot) {
+    if (slot === "test") return [s.pre_test && "at the start", s.post_test && "at the end"].filter(Boolean).join(" and ");
+    if (slot === "exit") return "at the end";
+    const f = (s.flow || []).find(x => x.tool === slot);
+    return f ? (f.after ? `after slide ${f.after}` : "at the start of training") : "whenever you choose";
+  }
+  async function drawActs(s, openSlot) {
+    const box = $("actList"); if (!box) return;
+    const list = await loadActs(s.id);
+    if (list === null) { box.innerHTML = `<p class="note warn">The database needs its activities update: run supabase/schema-3-activities.sql in Supabase.</p>`; return; }
+    const slots = slotsOf(s);
+    if (!slots.length) { box.innerHTML = `<div class="empty"><div><h2>No questions needed</h2><p class="muted">This session has no quiz, poll, pre/post test or other question activity. Tick some on the Engagement and Assessment steps of <a href="#/edit/${s.id}">Edit</a>.</p></div></div>`; return; }
+    box.innerHTML = `<p class="muted" style="max-width:70ch">Write the questions for each activity. They run on the live screen when your flow reaches them, and participants answer on their phones.</p>
+      <div class="acts">${slots.map(slot => {
+        const a = list.find(x => x.slot === slot), K = TSA.KINDS[slot], n = a?.data?.steps?.length || 0;
+        return `<div class="actc" data-slot="${slot}"><div class="acth"><span class="sq" style="background:${K.color}"></span>
+          <div><b>${esc(a?.title || K.name)}</b><span class="small muted">${esc(K.name)} · ${esc(whereInFlow(s, slot))}</span></div>
+          <span class="small ${n ? "ok" : "muted"}">${n ? `${n} ${TSA.PROMPTY(slot) ? "prompt" : "question"}${n === 1 ? "" : "s"} ✓` : "Not written yet"}</span>
+          <div class="row">${n ? `<button class="btn ghost small" type="button" data-csv="${slot}">Answers (CSV)</button>` : ""}<button class="btn ${n ? "ghost" : "red"} small" type="button" data-write="${slot}">${n ? "Edit" : "Write questions"}</button></div></div>
+          <div class="actb" hidden></div></div>`;
+      }).join("")}</div>`;
+    const open = slot => {
+      box.querySelectorAll(".actb").forEach(b => { b.hidden = true; b.innerHTML = ""; });
+      const card = box.querySelector(`.actc[data-slot="${slot}"]`), body = card.querySelector(".actb"), a = list.find(x => x.slot === slot);
+      body.hidden = false;
+      TSA.builder(body, {
+        kind: slot, title: a?.title, steps: a?.data?.steps, seconds: a?.data?.seconds,
+        upload: async file => {
+          const { blob, aspect } = await TSA.shrinkImage(file);
+          const dest = `${profile.id}/${s.id}/spot-${crypto.randomUUID()}.jpg`;
+          const up = await sb.storage.from("ts-shared").upload(dest, blob, { contentType: "image/jpeg" });
+          if (up.error) throw up.error;
+          return { url: sb.storage.from("ts-shared").getPublicUrl(dest).data.publicUrl, aspect };
+        },
+        onSave: async ({ title, steps, seconds }) => {
+          const { data, error } = await sb.from("activities").upsert({ session_id: s.id, slot, kind: slot, title, data: { steps, seconds }, updated_at: new Date().toISOString() }, { onConflict: "session_id,slot" }).select().single();
+          if (error) throw new Error(errText(error, "Couldn't save.").replace("schema.sql", "schema-3-activities.sql"));
+          acts[s.id] = [...list.filter(x => x.slot !== slot), data];
+          toast("Questions saved"); drawActs(s);
+        },
+        onCancel: () => { body.hidden = true; body.innerHTML = ""; }
+      });
+      body.querySelector("textarea,input")?.focus();
+    };
+    box.querySelectorAll("[data-write]").forEach(b => b.addEventListener("click", () => open(b.dataset.write)));
+    box.querySelectorAll("[data-csv]").forEach(b => b.addEventListener("click", () => answersCsv(s, list.find(x => x.slot === b.dataset.csv))));
+    if (openSlot) open(openSlot);
+  }
+  function readable(kind, step, ans) {
+    if (!ans) return "";
+    if (ans.i != null) return `${TSA.LETTERS[ans.i] || ""}. ${(step?.options || [])[ans.i] ?? ""}`;
+    if (ans.words) return ans.words.join(" · ");
+    if (ans.items) return ans.items.join(" → ");
+    if (ans.rights) return (step?.pairs || []).map((p, i) => `${p.l} = ${ans.rights[i] || "?"}`).join("; ");
+    if (ans.x != null) return `Tapped at ${Math.round(ans.x * 100)}%, ${Math.round(ans.y * 100)}%`;
+    return ans.text || "";
+  }
+  async function answersCsv(s, a) {
+    const { data: rs } = await sb.from("responses").select("run").eq("activity_id", a.id);
+    const runs = [...new Set((rs || []).map(r => r.run))].sort();
+    if (!runs.length) return toast("No answers yet. Run it from the live screen.");
+    const rows = [["Session", s.topic], ["Activity", a.title], [], ["Run", "Question #", "Question", "Name", "Organisation", "Group", "Answer", "Score %", "Points", "Seconds", "Answered at"]];
+    for (const run of runs) {
+      const { data } = await sb.rpc("live_results", { p_activity: a.id, p_run: run });
+      const label = run === "pre" ? "Pre-test" : run === "post" ? "Post-test" : "Run " + (runs.filter(x => x !== "pre" && x !== "post").indexOf(run) + 1);
+      (data || []).forEach(r => { const st = a.data.steps[r.step]; rows.push([label, r.step + 1, st?.q, r.name, r.organisation, r.grp === "all" ? "" : r.grp, readable(a.kind, st, r.answer), r.score == null ? "" : Math.round(r.score * 100), r.points, (r.ms / 1000).toFixed(1), new Date(r.at).toLocaleString()]); });
+    }
+    csvDownload(`${a.title} - ${s.topic}`, rows);
+  }
+
+  // ---------- learning achievement (Learning tab) ----------
+  const pctTxt = v => v == null ? "–" : Math.round(v) + "%";
+  const achTxt = v => v == null ? "–" : Math.round(v * 100) + "%";
+  async function drawLearning(s) {
+    const box = $("learnBox"); if (!box) return;
+    if (!s.pre_test && !s.post_test) { box.innerHTML = `<div class="empty"><div><h2>No pre/post test</h2><p class="muted">Add a pre-test and post-test on the Attendance step of <a href="#/edit/${s.id}">Edit</a> to measure each person's learning achievement.</p></div></div>`; return; }
+    const { data, error } = await sb.rpc("session_learning", { p_session: s.id });
+    if (error) { box.innerHTML = `<p class="note warn">${esc(errText(error, "Couldn't load results.").replace("schema.sql", "schema-3-activities.sql"))}</p>`; return; }
+    const rows = (data || []).map(r => ({ ...r, ach: r.took_pre && r.took_post ? achievement(+r.pre, +r.post) : null }));
+    const avg = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    const both = rows.filter(r => r.ach != null);
+    const aPre = avg(rows.filter(r => r.took_pre).map(r => +r.pre)), aPost = avg(rows.filter(r => r.took_post).map(r => +r.post)), aAch = avg(both.map(r => r.ach));
+    box.innerHTML = `<p class="muted" style="max-width:72ch">Learning achievement is how much of the room for improvement each person closed: (post − pre) ÷ (100 − pre). Someone who moves from 40% to 85% has achieved 75%.</p>
+      <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+        <div class="tile" style="--c:var(--yellow)"><span class="lbl">Average pre-test</span><b>${pctTxt(aPre)}</b><span>Where the room started</span></div>
+        <div class="tile" style="--c:var(--blue)"><span class="lbl">Average post-test</span><b>${pctTxt(aPost)}</b><span>Where it finished</span></div>
+        <div class="tile" style="--c:var(--red)"><span class="lbl">Average achievement</span><b>${achTxt(aAch)}</b><span>Of the room for improvement</span></div>
+        <div class="tile" style="--c:var(--ink)"><span class="lbl">Took both tests</span><b>${both.length}</b><span>of ${rows.length} who took a test</span></div></div>
+      <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Per participant</h2><div class="row"><button class="btn ghost small" type="button" id="lnRefresh">Refresh</button>${rows.length ? `<button class="btn small" type="button" id="lnCsv">Download (Excel/CSV)</button>` : ""}</div></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>Name</th><th>Organisation</th><th>Pre-test</th><th>Post-test</th><th>Gain</th><th>Achievement</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.organisation)}</td><td>${r.took_pre ? pctTxt(+r.pre) : "–"}</td><td>${r.took_post ? pctTxt(+r.post) : "–"}</td><td>${r.ach != null ? (r.post - r.pre >= 0 ? "+" : "") + Math.round(r.post - r.pre) : "–"}</td><td>${r.ach != null ? `<span class="achbar"><i style="width:${Math.max(0, Math.min(100, r.ach * 100))}%"></i></span> <b>${achTxt(r.ach)}</b>` : `<span class="muted small">${r.took_pre ? "No post-test" : "No pre-test"}</span>`}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">No test answers yet. Run the pre-test and post-test from the live screen.</td></tr>`}</tbody></table></div>`;
+    $("lnRefresh").onclick = () => drawLearning(s);
+    if ($("lnCsv")) $("lnCsv").onclick = () => csvDownload(`Learning achievement - ${s.topic}`, [["Session", s.topic], ["Date", s.session_date || ""], [], ["Name", "Organisation", "Pre-test %", "Post-test %", "Gain", "Learning achievement %"],
+      ...rows.map(r => [r.name, r.organisation, r.took_pre ? Math.round(r.pre) : "", r.took_post ? Math.round(r.post) : "", r.ach != null ? Math.round(r.post - r.pre) : "", r.ach != null ? Math.round(r.ach * 100) : ""])]);
+  }
+
   // ---------- LIVE: one flow of welcome, slides and activities ----------
   let P = null;
   const CARD = { pretest: ["Pre-test", "Where everyone starts"], posttest: ["Post-test", "What was learned"], evaluation: ["Session evaluation", "How it landed"], certificates: ["Certificates", "For the programme"], train: ["Training", "No slides uploaded for this session"] };
@@ -606,15 +725,19 @@
     P.channel = sb.channel("ts-" + s.attendance_code, { config: { broadcast: { self: false }, presence: { key: "presenter-" + crypto.randomUUID() } } });
     P.channel.on("presence", { event: "sync" }, () => { if (!P) return; P.phones = Object.keys(P.channel.presenceState()).filter(k => !k.startsWith("presenter-")).length; counts(); });
     P.channel.on("broadcast", { event: "checkin" }, () => refreshRoll(true));
+    P.channel.on("broadcast", { event: "answered" }, () => P?.run?.onAnswered());
     P.channel.subscribe(st => { if (st === "SUBSCRIBED") sayNow(); });
     P.nowTimer = setInterval(sayNow, 10000);
     P.rollTimer = setInterval(() => refreshRoll(true), 8000);
+    P.acts = (await loadActs(s.id, true)) || [];
     await refreshRoll(false);
     goItem(0);
     poke();
   }
+  function stopRun() { if (P?.run) { P.run.destroy(); P.run = null; } }
   function stopPresent() {
     if (!P) return;
+    stopRun();
     clearInterval(P.nowTimer); clearInterval(P.rollTimer);
     if (P.channel) sb.removeChannel ? sb.removeChannel(P.channel) : P.channel.unsubscribe?.();
     P = null;
@@ -655,7 +778,9 @@
   function sayNow() { if (P?.channel) P.channel.send({ type: "broadcast", event: "now", payload: { label: P.items[P.i].t === "welcome" ? "Welcome. The session starts soon" : P.items[P.i].label } }); }
   function goItem(n) {
     if (!P) return;
-    P.i = Math.max(0, Math.min(P.items.length - 1, n));
+    const to = Math.max(0, Math.min(P.items.length - 1, n));
+    if (to !== P.i || !P.run) stopRun();
+    P.i = to;
     const it = P.items[P.i];
     $("stPos").textContent = `${P.i + 1} of ${P.items.length}`;
     $("stKind").textContent = it.t === "slide" ? "Training" : it.t === "welcome" ? "Check-in" : it.label;
@@ -682,8 +807,31 @@
       });
       return;
     }
+    const slot = slotOfItem(it);
+    if (slot) return drawActivity(it, slot);
     const tool = it.t === "tool" ? TOOL[it.tool] : null, card = CARD[it.key] || [it.label, ""];
     m.innerHTML = `<div class="st-card"><span class="sq" style="background:${tool ? tool.color : it.key === "certificates" ? "#F4B400" : "#D2391F"}"></span><span class="lbl" style="color:var(--yellow)">${tool ? "Activity" : "Next up"}</span><b>${esc(tool ? tool.name : card[0])}</b><span>${esc(tool ? tool.line : card[1])}</span><span class="soon">This runs live on phones in the next update of Training Suite.</span></div>`;
+  }
+  // Activities between slides: an intro card, then the live runner (activities.js).
+  const slotOfItem = it => it.t === "tool" && SLOTS.includes(it.tool) ? it.tool : it.t === "card" && (it.key === "pretest" || it.key === "posttest") ? "test" : null;
+  function drawActivity(it, slot) {
+    if (P.run) return;
+    const m = $("stMain"), a = P.acts.find(x => x.slot === slot), K = TSA.KINDS[slot], ok = a && a.data?.steps?.length;
+    const name = slot === "test" ? (it.key === "pretest" ? "Pre-test" : "Post-test") : (a?.title || K.name);
+    const line = slot === "test" ? (it.key === "pretest" ? "Where everyone starts. Answer on your phone." : "The same questions again. You'll see your learning achievement.") : K.line;
+    const n = ok ? a.data.steps.length : 0;
+    m.innerHTML = `<div class="st-card"><span class="sq" style="background:${K.color}"></span><span class="lbl" style="color:var(--yellow)">${slot === "test" ? "Test" : "Activity"}${n ? ` · ${n} ${TSA.PROMPTY(slot) ? "prompt" : "question"}${n === 1 ? "" : "s"}` : ""}</span><b>${esc(name)}</b><span>${esc(line)}</span>
+      ${ok ? `<button class="key next big" type="button" id="stStart">▶ Start${P.phones ? ` · ${P.phones} phone${P.phones === 1 ? "" : "s"} ready` : ""}</button><span class="soon">Enter starts it · → skips it</span>`
+           : `<span class="soon">No questions written yet. Add them on the session's Assessments tab, then reopen the live screen.</span>`}</div>`;
+    $("stStart")?.addEventListener("click", () => startRun(it, slot, a));
+  }
+  function startRun(it, slot, a) {
+    if (!P || P.run) return;
+    const run = slot === "test" ? (it.key === "pretest" ? "pre" : "post") : "r" + Date.now().toString(36);
+    const m = $("stMain"); m.innerHTML = `<div class="lvwrap"></div>`;
+    const at = P.i;
+    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0,
+      onDone: () => { if (P && P.i === at) { if (P.i < P.items.length - 1) goItem(P.i + 1); else { stopRun(); draw(); } } } });
   }
   function drawWelcome() {
     const m = $("stMain"), code = P.s.attendance_code, link = checkinLink(code), here = P.roll.filter(r => !r.left_at);
@@ -764,7 +912,10 @@
   $("stExit").addEventListener("click", () => exitPresent());
   document.addEventListener("keydown", e => {
     if (!P || $("stage").hidden || e.target.closest("input,textarea,select")) return;
-    if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); if (P.i < P.items.length - 1) goItem(P.i + 1); }
+    if ((e.key === " " || e.key === "Enter") && e.target.closest("button") && e.target.closest(".lv,.st-card,.st-share")) return;   // a focused button on the activity acts itself
+    if (P.run && (e.key === " " || e.key === "Enter")) { e.preventDefault(); P.run.main(); }
+    else if (!P.run && e.key === "Enter" && $("stStart")) { e.preventDefault(); $("stStart").click(); }
+    else if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); if (P.i < P.items.length - 1) goItem(P.i + 1); }
     else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); goItem(P.i - 1); }
     else if (e.key === "f" || e.key === "F") $("stFs").click();
     else if (e.key === "Escape" && !$("stShare").hidden) $("stShare").hidden = true;

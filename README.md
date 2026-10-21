@@ -28,3 +28,12 @@ Next: gestures and the phone remote on the live screen, the activities running l
 4. **Hosting:** Vercel → import this repository → Framework preset *Other*, no build command.
 
 `config.js` holds the Supabase URL and the publishable key (safe in web pages). Never put a secret or service_role key in this repository.
+
+## Phase 3: activities live
+
+Run `supabase/schema-3-activities.sql` once in the Supabase SQL Editor (after schema.sql and schema-2-participants.sql).
+
+- **Assessments tab** on each session: write the questions for every quiz, poll, word cloud, first to catch, group battle, order it, match it, spot the error, case study, exit ticket, and the pre/post test.
+- **Live screen**: when the flow reaches an activity, press Enter (or ▶ Start). Space moves through open → reveal → next question → leaderboard.
+- **Phones** answer on the check-in page. Scoring happens in the database, and answers stay hidden until you reveal them.
+- **Pre/post test**: the pre-test never shows the answers. After the post-test, each person sees their learning achievement, (post − pre) ÷ (100 − pre). The **Learning** tab lists everyone, with a CSV download.
