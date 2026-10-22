@@ -82,7 +82,7 @@
       sb.from("sessions").select("*").order("session_date", { ascending: true, nullsFirst: false })
     ]);
     if (p.error) toast(errText(p.error, "Couldn't load programmes."));
-    progs = p.data || []; sessions = s.data || []; loaded = true;
+    progs = p.data || []; sessions = s.data || []; loaded = true; dash = null;
   }
 
   // ---------- auth screens ----------
@@ -178,35 +178,56 @@
 
   // ---------- dashboard ----------
   const openFolds = { perf: true };
+  let dash = null;   // dashboard numbers (dashboard_stats)
   function viewDashboard() {
     const hour = new Date().getHours();
     const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-    const first = (profile.full_name || "").replace(/^(Prof|Dr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(" ")[0];
+    const first = (profile.full_name || "").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(" ")[0];
     const done = sessions.filter(s => s.status === "completed").length;
-    const upcoming = sessions.filter(s => s.status === "ready" || s.status === "live");
-    const next = upcoming.filter(s => !s.session_date || s.session_date >= today())[0] || upcoming[0];
-    const tiles = `<div class="tiles">
-      <div class="tile" style="--c:var(--red)"><span class="lbl">Sessions</span><b>${sessions.length}</b><span>${done} completed · ${upcoming.length} to run</span></div>
-      <div class="tile" style="--c:var(--yellow)"><span class="lbl">Programmes</span><b>${progs.length}</b><span>Each holds its sessions</span></div>
-      <div class="tile" style="--c:var(--blue)"><span class="lbl">Participant rating</span><b>–</b><span>From session evaluations</span></div>
-      <div class="tile" style="--c:var(--ink)"><span class="lbl">Learning achievement</span><b>–</b><span>From pre and post tests</span></div></div>`;
-    if (!progs.length || !sessions.length) {
-      return V(head("Dashboard", `${greet}${first ? ", " + first : ""}`) + tiles + `<div class="empty">${LOGO(110)}<div>
-        <h2>Let's set up your first session</h2>
-        <p class="muted" style="font-size:17px;max-width:52ch">Start with a programme, then add a session to it. Ratings, learning achievement and tool usage build up here after each session.</p>
-        <div class="row"><a class="btn${progs.length ? " ghost" : ""}" href="#/programmes?new=1">1 · Create a programme</a><a class="btn${progs.length ? "" : " ghost"}" href="#/new">2 · Create a session</a></div></div></div>`);
-    }
+    const live = sessions.find(s => s.status === "live");
+    const upcoming = sessions.filter(s => s.status === "ready" || s.status === "live").sort((a, b) => String(a.session_date || "9999").localeCompare(String(b.session_date || "9999")));
+    const next = live || upcoming.filter(s => !s.session_date || s.session_date >= today())[0] || upcoming[0];
+    const D = dash || {};
+    const num = (v, suf = "") => v == null ? "–" : `${Number(v).toLocaleString()}${suf ? `<small>${suf}</small>` : ""}`;
+    const hero = `<section class="dcard d-hero">
+      <span class="eyebrow">${live ? "A session is live" : "Your training desk"}</span>
+      <h1>${greet}${first ? `, <em>${esc(first)}</em>` : ""}.</h1>
+      <p>${live ? `“${esc(live.topic)}” is running now.` : next ? `Next up: “${esc(next.topic)}”, ${esc(fmtDate(next.session_date))}${next.start_time ? " at " + esc(next.start_time) : ""}.` : progs.length ? "No sessions scheduled. Add one to a programme to get going." : "Create a programme, then add your first session to it."}</p>
+      <div class="row">${live ? `<a class="btn yellow" href="#/present/${live.id}">Back to the live screen <span class="arr">↗</span></a>` : next ? `<a class="btn yellow" href="#/session/${next.id}">Open next session <span class="arr">↗</span></a>` : ""}
+        <a class="btn ${next || live ? "ghost" : "yellow"}" href="${progs.length ? "#/new" : "#/programmes?new=1"}">${progs.length ? "+ New session" : "+ Create a programme"}</a></div>
+      <div class="art" aria-hidden="true"><img src="assets/logo.png" alt=""></div></section>`;
+    const stats = `
+      <div class="dcard d-stat"><span class="eyebrow">Sessions</span><b>${sessions.length}</b><span class="sub">${done} completed · ${upcoming.length} to run</span></div>
+      <div class="dcard d-stat yellow"><span class="eyebrow">People trained</span><b>${num(D.people)}</b><span class="sub">${D.checkins != null ? `${Number(D.checkins).toLocaleString()} check-ins across ${progs.length} programme${progs.length === 1 ? "" : "s"}` : "From your registers"}</span></div>
+      <div class="dcard d-stat blue"><span class="eyebrow">Learning achievement</span><b>${num(D.achievement, "%")}</b><span class="sub">Average, from pre and post tests</span></div>
+      <div class="dcard d-stat red"><span class="eyebrow">Participation</span><b>${num(D.participation, "%")}</b><span class="sub">${D.runs ? `Across ${D.runs} activities run` : "Of activities run, on average"}</span></div>`;
+    const nextList = upcoming.slice(0, 4);
+    const nextCard = `<section class="dcard d-next"><div class="d-head"><h3>Coming up</h3><a class="btn ghost small" href="#/sessions">All sessions</a></div>
+      ${nextList.map(s => { const [d, m] = dayMon(s.session_date), [t, c] = statusOf(s); return `<a class="nrow" href="#/session/${s.id}"><span class="cal"><b>${d}</b><span>${m}</span></span><span style="min-width:0"><b class="t">${esc(s.topic)}</b><small>${esc(progName(s.programme_id))}${s.start_time ? " · " + esc(s.start_time) : ""}</small></span><span class="badge ${c}">${t}</span></a>`; }).join("") || `<p class="muted">Nothing scheduled. <a href="#/new">Create a session</a>.</p>`}</section>`;
     const usage = {}; sessions.forEach(s => (s.tools || []).forEach(t => (usage[t] = (usage[t] || 0) + 1)));
-    const u = Object.entries(usage).sort((a, b) => b[1] - a[1]); const umax = Math.max(1, ...u.map(x => x[1]));
-    const fold = (k, title, body) => `<section class="fold"><button type="button" data-fold="${k}" aria-expanded="${!!openFolds[k]}"><span>${title}</span><span>${openFolds[k] ? "HIDE −" : "SHOW +"}</span></button>${openFolds[k] ? `<div class="body">${body}</div>` : ""}</section>`;
-    const later = `<p class="muted">Appears once sessions have been run with pre and post tests and evaluations.</p>`;
-    V(head("Dashboard", `${greet}${first ? ", " + first : ""}`) + tiles + `<div style="display:flex;flex-direction:column;gap:10px"><span class="lbl">Analytics</span>
-      ${fold("perf", "Programmes by participant performance", later)}
-      ${fold("sess", "Sessions by participant performance", later)}
-      ${fold("rate", "Participant ratings", later)}
-      ${fold("tools", "Tool usage", u.length ? u.map(([id, n]) => `<div style="display:grid;grid-template-columns:150px 1fr 30px;gap:12px;align-items:center;font-size:14px"><span>${esc(TOOL[id]?.name || id)}</span><div class="bar" style="height:16px"><i style="width:${n / umax * 100}%;background:${TOOL[id]?.color || "#2747C8"}"></i></div><b style="text-align:right">${n}</b></div>`).join("") + `<span class="small muted">Planned across your sessions</span>` : `<p class="muted">No tools picked yet.</p>`)}
-      ${next ? `<a href="#/session/${next.id}" style="margin-top:10px;background:var(--ink);color:#fff;text-decoration:none;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap"><span style="display:flex;flex-direction:column;gap:4px"><span class="lbl" style="color:var(--yellow)">Next session</span><b style="font-family:var(--display);font-size:20px">${esc(next.topic)} · ${esc(fmtDate(next.session_date))}${next.start_time ? " · " + esc(next.start_time) : ""}</b></span><span class="btn yellow small">Open</span></a>` : ""}</div>`);
+    const u = Object.entries(usage).sort((a, b) => b[1] - a[1]);
+    const toolsCard = `<section class="dcard d-tools"><div class="d-head"><h3>Your favourite tools</h3><span class="small muted">Planned in sessions</span></div>
+      <div class="chips">${u.map(([id, n], k) => `<span class="chip${k % 3 === 0 ? " dark" : ""}">${esc(TOOL[id]?.name || id)} <i>${n}</i></span>`).join("") || `<p class="muted">Tick activities when you create a session; they show up here.</p>`}</div></section>`;
+    const perSess = Object.fromEntries((D.sessions || []).map(x => [x.id, x]));
+    const progCard = progs.length ? `<section class="dcard d-progs"><div class="d-head"><h3>Programmes</h3><a class="btn ghost small" href="#/programmes">Manage</a></div><div class="pgrid">${progs.map(p => {
+      const ss = sessions.filter(s => s.programme_id === p.id), dn = ss.filter(s => s.status === "completed").length;
+      const ach = (D.sessions || []).filter(x => x.programme === p.id && x.achievement != null).map(x => +x.achievement);
+      return `<a class="pcard" href="#/programmes"><span class="meta"><span>${esc(p.code || "Programme")}</span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}</span><b>${esc(p.name)}</b>
+        <div class="bar" style="height:8px"><i style="width:${ss.length ? dn / ss.length * 100 : 0}%;background:var(--red)"></i></div>
+        <span class="meta"><span>${dn} of ${ss.length} session${ss.length === 1 ? "" : "s"} done</span><span>${ach.length ? Math.round(ach.reduce((a, b) => a + b, 0) / ach.length) + "% achievement" : ""}</span></span></a>`; }).join("")}</div></section>` : "";
+    // analytics: one open by default, the rest folded
+    const fold = (k, title, body) => `<section class="fold" data-open="${openFolds[k] ? 1 : 0}"><button type="button" data-fold="${k}" aria-expanded="${!!openFolds[k]}"><span>${title}</span><span>${openFolds[k] ? "Hide" : "Show"}</span></button>${openFolds[k] ? `<div class="body">${body}</div>` : ""}</section>`;
+    const later = `<p class="muted">Fills in as you run sessions with pre and post tests and activities.</p>`;
+    const barRow = (label, v, color, href) => `<a href="${href}" style="display:grid;grid-template-columns:minmax(0,220px) 1fr 52px;gap:12px;align-items:center;font-size:14px;color:var(--ink);text-decoration:none"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(label)}</span><div class="bar" style="height:14px"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${color}"></i></div><b style="text-align:right">${Math.round(v)}%</b></a>`;
+    const progPerf = progs.map(p => { const a = (D.sessions || []).filter(x => x.programme === p.id && x.achievement != null).map(x => +x.achievement); return a.length ? [p, a.reduce((x, y) => x + y, 0) / a.length] : null; }).filter(Boolean).sort((a, b) => b[1] - a[1]);
+    const sessPerf = sessions.map(x => [x, perSess[x.id]]).filter(([, d]) => d && (d.achievement != null || d.participation != null));
+    const analytics = `<div class="d-analytics"><span class="eyebrow" style="background:var(--canvas)">Analytics</span>
+      ${fold("perf", "Programmes by learning achievement", progPerf.length ? progPerf.map(([p, v]) => barRow(p.name, v, "var(--blue)", "#/programmes")).join("") : later)}
+      ${fold("sess", "Sessions by learning achievement and participation", sessPerf.length ? sessPerf.map(([x, d]) => `<div style="display:flex;flex-direction:column;gap:6px"><b style="font-size:14px">${esc(x.topic)}</b>${d.achievement != null ? barRow("Learning achievement", +d.achievement, "var(--blue)", "#/session/" + x.id) : ""}${d.participation != null ? barRow("Participation", +d.participation, "var(--red)", "#/session/" + x.id) : ""}</div>`).join("") : later)}
+      ${fold("rate", "Participant ratings", `<p class="muted">Comes with session evaluations (step 5 on the roadmap).</p>`)}</div>`;
+    V(`<div class="dash">${hero}${stats}${nextCard}${toolsCard}${progCard}${analytics}</div>`);
     $("view").querySelectorAll("[data-fold]").forEach(b => b.addEventListener("click", () => { openFolds[b.dataset.fold] = !openFolds[b.dataset.fold]; viewDashboard(); }));
+    if (!dash) sb.rpc("dashboard_stats").then(({ data }) => { if (data) { dash = data; if (/^#\/dashboard|^#?\/?$/.test(location.hash)) viewDashboard(); } });
   }
 
   // ---------- programmes ----------

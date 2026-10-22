@@ -78,3 +78,34 @@ $$;
 
 grant execute on function public.session_participation(uuid) to authenticated;
 grant execute on function public.my_participation(text, uuid) to anon, authenticated;
+
+-- Dashboard numbers for the signed-in trainer: people reached, learning achievement and participation per session.
+create or replace function public.dashboard_stats()
+returns jsonb language sql stable security definer set search_path = public as $$
+  with mine as (select id, programme_id from public.sessions where owner_id = auth.uid() and public.is_active()),
+  tests as (select a.id, a.session_id, greatest(jsonb_array_length(coalesce(a.data->'steps','[]'::jsonb)),1) n
+              from public.activities a join mine on mine.id = a.session_id where a.slot = 'test'),
+  pp as (select t.session_id, r.participant_id,
+                100.0 * sum(coalesce(r.score,0)) filter (where r.run = 'pre') / t.n as pre,
+                100.0 * sum(coalesce(r.score,0)) filter (where r.run = 'post') / t.n as post
+           from tests t join public.responses r on r.activity_id = t.id and r.run in ('pre','post')
+          group by t.session_id, r.participant_id, t.n),
+  ach as (select session_id, case when pre >= 100 then case when post >= 100 then 1 else (post - 100) / 100 end else (post - pre) / (100 - pre) end as a
+            from pp where pre is not null and post is not null),
+  part as (select mine.id as session_id, avg(t.rate) as rate
+             from mine cross join lateral public.ts_participation(mine.id) t where t.runs > 0 group by mine.id),
+  per as (select mine.id, mine.programme_id,
+                 (select count(*) from public.attendance x where x.session_id = mine.id) as people,
+                 (select avg(a) from ach where ach.session_id = mine.id) as ach,
+                 (select rate from part where part.session_id = mine.id) as part
+            from mine)
+  select jsonb_build_object(
+    'people', (select count(distinct x.participant_id) from public.attendance x join mine on mine.id = x.session_id),
+    'checkins', (select count(*) from public.attendance x join mine on mine.id = x.session_id),
+    'achievement', (select round((avg(a) * 100)::numeric) from ach),
+    'participation', (select round(avg(rate)::numeric) from part),
+    'runs', (select count(*) from public.activity_runs r join mine on mine.id = r.session_id),
+    'sessions', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'programme', programme_id, 'people', people,
+                  'achievement', round((ach * 100)::numeric), 'participation', round(part::numeric))) from per), '[]'::jsonb));
+$$;
+grant execute on function public.dashboard_stats() to authenticated;
