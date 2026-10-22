@@ -145,7 +145,7 @@
     document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await loadItems(); render(false); refreshLive(true); } });
     setInterval(() => { if (!document.hidden && !$("room").hidden) refreshLive(); }, 5000);
     setInterval(() => { if (!document.hidden) loadTime(); }, 60000);
-    refreshLive(true); loadLearning();
+    refreshLive(true); loadLearning(); loadPart();
     if (sess.ended) sessionEnded();
   }
   async function loadItems() {
@@ -185,6 +185,7 @@
     if (lastRun === "post" && (data.run !== "post" || data.phase !== "open")) loadLearning();
     lastRun = data.phase === "idle" ? "" : data.run;
     lastKey = key; cur = data;
+    if (data.phase === "reveal" || data.phase === "idle") loadPart();
     if (moved || data.phase !== "open") draft = null;
     deadline = data.phase === "open" && data.left != null ? Date.now() + data.left * 1000 : 0;
     if (moved && data.phase === "open") buzz(30);
@@ -256,6 +257,7 @@
       const e = $("actErr"); if (e) e.textContent = "Couldn't send. Check the connection and try again."; return;
     }
     buzz(data?.rank === 1 ? [40, 60, 40, 60, 120] : 40);
+    setTimeout(loadPart, 400);
     channel?.send({ type: "broadcast", event: "answered", payload: {} });
     cur = { ...cur, mine: { answer, score: data?.score, points: data?.points, rank: data?.rank } };
     lastKey = [cur.activity, cur.run, cur.step, cur.phase, 1].join("|");
@@ -276,6 +278,18 @@
     if (q.answer_pairs) return head + `<div class="ord">${q.answer_pairs.map((p, i) => `<div style="grid-template-columns:1fr"><span>${esc(p.l)} → <b>${esc(p.r)}</b>${a.rights && a.rights[i] === p.r ? " ✓" : ""}</span></div>`).join("")}</div>`;
     if (q.region) return head + `<div class="sp"><img src="${esc(q.image)}" alt=""><span class="tgt" style="left:${q.region.x * 100}%;top:${q.region.y * 100}%;width:${q.region.r * 2 / (q.aspect || 1) * 100}%;aspect-ratio:1"></span>${a.x != null ? `<span class="dot" style="left:${a.x * 100}%;top:${a.y * 100}%"></span>` : ""}</div>`;
     return head + (mine ? mineView(c, q, mine) : "");
+  }
+
+  // ---------- participation (step 2) ----------
+  async function loadPart() {
+    if (!me) return;
+    const { data } = await sb.rpc("my_participation", { p_code: code, p_token: me.token });
+    const box = $("part");
+    if (!data || !data.runs) { box.hidden = true; return; }
+    box.innerHTML = `<span class="lbl">Your participation</span>
+      <div class="pp3"><div><b>${data.taken}<small>/${data.runs}</small></b><span>activities</span></div><div><b>${(data.points || 0).toLocaleString()}</b><span>points</span></div><div><b>${data.rank}<small>/${data.of}</small></b><span>rank</span></div></div>
+      <div class="bar"><i style="width:${data.rate}%"></i></div>`;
+    box.hidden = false;
   }
 
   // ---------- learning achievement (after the post-test) ----------
@@ -341,7 +355,7 @@
       ${d.spent_seconds != null ? `<div class="pp"><div><span class="small">Time in the session</span><b>${hm(d.spent_seconds)}</b></div><div><span class="small">Time away</span><b>${hm(d.away_seconds || 0)}</b></div></div>` : ""}
       <span class="small" style="color:#C9CEC6">Your items stay on this page${sess.closes_at ? " until " + new Date(sess.closes_at).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" }) : ""}.</span>`;
     $("nowTxt").textContent = "The session has ended";
-    loadLearning(); buzz([30, 40, 60]);
+    loadLearning(); loadPart(); buzz([30, 40, 60]);
   }
 
   boot();

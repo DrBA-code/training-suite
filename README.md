@@ -48,3 +48,12 @@ Run `supabase/schema-4-attendance.sql` once (after schema-3).
 - **Possible duplicates** (the same name under two emails) are flagged in the register, with a Merge button.
 - **End session** closes the room on every phone and shows each person a summary. When the last session ends, the programme is marked Completed. **Reopen session** undoes it.
 - The check-in camera shows a head-and-shoulders outline.
+
+## Step 2: participation ranking
+
+Run `supabase/schema-5-participation.sql` once (after schema-4).
+
+- Each launch of an activity on the live screen counts as one activity run.
+- The **Participation** tab ranks everyone by how many activities they took part in, then by points. Downloads to CSV.
+- The register CSV includes each person's participation and rank.
+- Each phone shows "Your participation": activities taken part in, points, and rank.

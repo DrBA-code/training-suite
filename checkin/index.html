@@ -101,6 +101,13 @@
   .learn .pp div{background:#22252E;padding:10px 12px}
   .learn .pp b{display:block;font-family:var(--display);font-size:28px}
   .learn .bar{height:10px;background:#22252E}.learn .bar i{display:block;height:100%;background:var(--yellow)}
+  .part{border:1.5px solid var(--ink);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+  .part .pp3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .part .pp3 div{display:flex;flex-direction:column}
+  .part .pp3 b{font-family:var(--display);font-weight:800;font-size:28px;line-height:1.1}
+  .part .pp3 small{font-size:15px;color:var(--faint);font-weight:700}
+  .part .pp3 span{font-size:13px;color:var(--muted)}
+  .part .bar{height:8px;background:var(--sage)}.part .bar i{display:block;height:100%;background:var(--blue)}
   @media (prefers-reduced-motion:reduce){#fly .card,.item.new,.act,.learn{animation:none}}
 </style>
 </head>
@@ -149,6 +156,7 @@
     <div class="learn" id="endBox" hidden></div>
     <div class="act" id="act" hidden aria-live="polite"></div>
     <div class="learn" id="learn" hidden></div>
+    <div class="part" id="part" hidden></div>
     <div class="now" id="now"><span class="lbl">On the screen</span><b id="nowTxt">Waiting for the session to start</b></div>
     <div style="display:flex;flex-direction:column;gap:10px"><h2 style="font-size:20px">My items</h2><div class="items" id="items"></div></div>
   </section>

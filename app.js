@@ -510,7 +510,7 @@
     if (!s) return V(`<p class="muted">Session not found. <a href="#/sessions">Back to sessions</a></p>`);
     const p = progs.find(x => x.id === s.programme_id) || {};
     const [st, sc] = statusOf(s), steps = runSteps(s), now = s.status === "live" ? s.progress : s.status === "completed" ? steps.length : -1;
-    const T = [["run", "Run sheet"], ["details", "Details"], ["attendance", "Attendance"], ["assess", "Assessments"], ["learning", "Learning"], ["evaluation", "Evaluation"], ["certs", "Certificates"], ["report", "Report"]];
+    const T = [["run", "Run sheet"], ["details", "Details"], ["attendance", "Attendance"], ["particip", "Participation"], ["assess", "Assessments"], ["learning", "Learning"], ["evaluation", "Evaluation"], ["certs", "Certificates"], ["report", "Report"]];
     let body = "";
     if (sessTab === "run") {
       body = `<ol class="runlist">${steps.map(([n, l], i) => `<li><span class="dot ${i < now ? "done" : i === now ? "now" : ""}">${String(i + 1).padStart(2, "0")}</span><div><b>${esc(n)}</b><span class="l">${esc(l)}</span></div>
@@ -535,6 +535,8 @@
       body = `<div id="actList"><p class="muted">Loading…</p></div>`;
     } else if (sessTab === "learning") {
       body = `<div id="learnBox"><p class="muted">Loading…</p></div>`;
+    } else if (sessTab === "particip") {
+      body = `<div id="partBox"><p class="muted">Loading…</p></div>`;
     } else {
       const M = { evaluation: "Reaction and learning scores, per-item results and an AI summary of comments. Collapsed sections, like the dashboard.", certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
@@ -550,6 +552,7 @@
     if (sessTab === "attendance") loadRegister(s);
     if (sessTab === "assess") drawActs(s);
     if (sessTab === "learning") drawLearning(s);
+    if (sessTab === "particip") drawParticipation(s);
     $("endRun")?.addEventListener("click", () => {
       const b = $("endRun");
       if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to end for everyone"; setTimeout(() => { if (b.isConnected) { b.dataset.sure = ""; b.textContent = "End session"; } }, 4000); return; }
@@ -630,11 +633,13 @@
         if (error) return toast(errText(error, "Couldn't merge.").replace("schema.sql", "schema-4-attendance.sql"));
         toast("Merged into one person"); draw();
       }));
-      $("regCsv").onclick = () => {
+      $("regCsv").onclick = async () => {
         const p = progs.find(x => x.id === s.programme_id) || {};
+        const { data: part } = await sb.rpc("session_participation", { p_session: s.id });
+        const pm = Object.fromEntries((part || []).map(x => [x.participant, x]));
         csvDownload(`Register - ${s.topic}`, [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [],
-          ["#", "Title", "Name", "Email", "Organisation", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Photo"],
-          ...rows.map((r, i) => [i + 1, r.title, r.name, r.email, r.organisation, fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), r.photo])]);
+          ["#", "Title", "Name", "Email", "Organisation", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
+          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
       };
     };
     $("regRefresh").onclick = draw;
@@ -789,6 +794,29 @@
       (data || []).forEach(r => { const st = a.data.steps[r.step]; rows.push([label, r.step + 1, st?.q, r.name, r.organisation, r.grp === "all" ? "" : r.grp, readable(a.kind, st, r.answer), r.score == null ? "" : Math.round(r.score * 100), r.points, (r.ms / 1000).toFixed(1), new Date(r.at).toLocaleString()]); });
     }
     csvDownload(`${a.title} - ${s.topic}`, rows);
+  }
+
+  // ---------- participation ranking (Participation tab) ----------
+  async function drawParticipation(s) {
+    const box = $("partBox"); if (!box) return;
+    const { data, error } = await sb.rpc("session_participation", { p_session: s.id });
+    if (error) { box.innerHTML = `<p class="note warn">${esc(errText(error, "Couldn't load.").replace("schema.sql", "schema-5-participation.sql"))}</p>`; return; }
+    const rows = data || [], runs = rows[0]?.runs || 0;
+    const avg = rows.length ? Math.round(rows.reduce((a, r) => a + r.rate, 0) / rows.length) : 0;
+    const medal = n => n <= 3 ? `<span class="medal m${n}">${n}</span>` : `<span class="medal">${n}</span>`;
+    box.innerHTML = `<p class="muted" style="max-width:72ch">Ranked by how many activities each person took part in, then by points. Each person sees their own rank on their phone.</p>
+      <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+        <div class="tile" style="--c:var(--red)"><span class="lbl">Activities run</span><b>${runs}</b><span>Launched on the live screen</span></div>
+        <div class="tile" style="--c:var(--blue)"><span class="lbl">Average participation</span><b>${avg}%</b><span>Of activities run</span></div>
+        <div class="tile" style="--c:var(--yellow)"><span class="lbl">Took part in all</span><b>${runs ? rows.filter(r => r.taken >= runs).length : 0}</b><span>of ${rows.length} checked in</span></div>
+        <div class="tile" style="--c:var(--ink)"><span class="lbl">Took part in none</span><b>${runs ? rows.filter(r => !r.taken).length : 0}</b><span>Worth a word at the break</span></div></div>
+      <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Most active first</h2><div class="row"><button class="btn ghost small" type="button" id="ptRefresh">Refresh</button>${rows.length ? `<button class="btn small" type="button" id="ptCsv">Download (Excel/CSV)</button>` : ""}</div></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>Rank</th><th>Photo</th><th>Name</th><th>Organisation</th><th>Activities</th><th>Participation</th><th>Answers</th><th>Points</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${medal(r.rank)}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.organisation)}</td>
+        <td>${r.taken} of ${r.runs}</td><td><span class="achbar"><i style="width:${r.rate}%;background:var(--blue)"></i></span> <b>${r.rate}%</b></td><td>${r.answers}</td><td><b>${r.points.toLocaleString()}</b></td></tr>`).join("") || `<tr><td colspan="8" class="muted">No one has checked in yet.</td></tr>`}</tbody></table></div>`;
+    $("ptRefresh").onclick = () => drawParticipation(s);
+    if ($("ptCsv")) $("ptCsv").onclick = () => csvDownload(`Participation - ${s.topic}`, [["Session", s.topic], ["Date", s.session_date || ""], ["Activities run", runs], [],
+      ["Rank", "Name", "Organisation", "Activities taken part in", "Activities run", "Participation %", "Answers", "Points"], ...rows.map(r => [r.rank, r.name, r.organisation, r.taken, r.runs, r.rate, r.answers, r.points])]);
   }
 
   // ---------- learning achievement (Learning tab) ----------
