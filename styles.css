@@ -310,7 +310,8 @@ table.t select,table.t input{font-size:14px;padding:8px 10px;border:1.5px solid 
 .lv-row.dim{opacity:.35}
 .lv-row.right .tr{outline:4px solid #3FB98A;outline-offset:2px}
 .lv-row.right .lab:after{content:"  ✓";color:#3FB98A}
-.lv-cloud{display:flex;flex-wrap:wrap;gap:6px 26px;align-items:center;justify-content:center;font-family:var(--display);font-weight:800;line-height:1.05}
+.lv-viz:has(.lv-cloud){overflow:hidden}
+.lv-cloud{flex:1;min-height:0;overflow:hidden;display:flex;flex-wrap:wrap;gap:6px 26px;align-items:center;align-content:safe center;justify-content:center;font-family:var(--display);font-weight:800;line-height:1.05}
 .lv-cloud span{animation:pop .5s cubic-bezier(.2,1.4,.4,1) both}
 @keyframes pop{from{transform:scale(.3);opacity:0}}
 .lv-list{display:flex;flex-direction:column;gap:10px}

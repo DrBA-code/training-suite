@@ -270,7 +270,11 @@ window.TSA = (() => {
         rows.forEach(r => (r.answer?.words || []).forEach(w => { const key = String(w).trim().toLowerCase().replace(/[.!?,;:]+$/, ""); if (key) { const e = m.get(key) || { w: String(w).trim(), n: 0 }; e.n++; m.set(key, e); } }));
         const list = [...m.values()].sort((a, b) => b.n - a.n).slice(0, 60), max = Math.max(1, ...list.map(x => x.n));
         const hash = t => [...t].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
-        v.innerHTML = list.length ? `<div class="lv-cloud">${[...list].sort((a, b) => hash(a.w) - hash(b.w)).map(x => `<span style="font-size:${Math.round(22 + 98 * Math.sqrt(x.n / max))}px;color:${COLORS[hash(x.w) % COLORS.length]}">${esc(x.w)}</span>`).join("")}</div>` : waiting("Words appear here as people answer.");
+        const size = x => max > 1 ? 22 + 98 * Math.sqrt((x.n - 1) / (max - 1)) : 56;   // all different → one middle size
+        v.innerHTML = list.length ? `<div class="lv-cloud">${[...list].sort((a, b) => hash(a.w) - hash(b.w)).map(x => `<span data-s="${size(x)}" style="font-size:${Math.round(size(x))}px;color:${COLORS[hash(x.w) % COLORS.length]}" title="${x.n}">${esc(x.w)}</span>`).join("")}</div>` : waiting("Words appear here as people answer.");
+        const c = v.querySelector(".lv-cloud");
+        if (c) { let k = 1; const fits = () => c.scrollHeight <= c.clientHeight + 2 && c.scrollWidth <= c.clientWidth + 2;
+          for (let n = 0; n < 30 && !fits(); n++) { k *= 0.88; [...c.children].forEach(sp => (sp.style.fontSize = Math.max(11, Math.round(+sp.dataset.s * k)) + "px")); } }
       },
       order(v, s, rows, rev) {
         if (!rev) { v.innerHTML = waiting(`${rows.length} answered. Reveal to see the right order.`); return; }
