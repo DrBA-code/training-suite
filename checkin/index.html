@@ -32,6 +32,11 @@
   .ring video,.ring img{width:100%;height:100%;object-fit:cover}
   .ring video{transform:scaleX(-1)}
   .ring span{font-size:12px;color:var(--muted);text-align:center;padding:8px}
+  .ring{width:168px;height:168px}
+  .ring .guide{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .ring .guide path{fill:none;stroke:#fff;stroke-width:1.6;stroke-dasharray:4 3;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.8))}
+  #endBox b{font-family:var(--display);font-size:26px;line-height:1.2}
+  #endBox .pp span{color:#C9CEC6}
   .consent{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--muted)}
   .consent input{width:20px;height:20px;margin-top:2px;flex:none;accent-color:var(--blue)}
   .me{display:grid;grid-template-columns:72px 1fr;gap:14px;align-items:center}
@@ -123,11 +128,12 @@
     <div class="fld" role="group" aria-labelledby="tl"><span id="tl">Title</span><div class="titles" id="titles"></div></div>
     <label class="fld" for="fName">Full name<span class="hint">Write it exactly as you want it on your certificate.</span><input id="fName" autocomplete="name" placeholder="e.g. Babajide Arulogun"></label>
     <div class="certprev" id="prev" hidden><span>On your certificate</span><b id="prevName"></b></div>
-    <label class="fld" for="fEmail">Email<span class="hint">Your certificate and results will be sent here.</span><input id="fEmail" type="email" inputmode="email" autocomplete="email"></label>
+    <label class="fld" for="fEmail">Email<span class="hint" id="emailHint">Your certificate and results will be sent here.</span><input id="fEmail" type="email" inputmode="email" autocomplete="email"></label>
     <label class="fld" for="fOrg">Organisation / MDA<input id="fOrg" autocomplete="organization" placeholder="Ministry, department, agency or company"></label>
     <div class="fld"><span>Your photo</span>
-      <div class="cam"><div class="ring" id="ring"><span id="camMsg">Starting camera…</span><video id="video" playsinline muted autoplay hidden></video><img id="still" alt="Your photo" hidden></div>
-        <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:160px"><span class="small muted">Look at the camera. Your photo is taken when you tap Check me in.</span>
+      <div class="cam"><div class="ring" id="ring"><span id="camMsg">Starting camera…</span><video id="video" playsinline muted autoplay hidden></video><img id="still" alt="Your photo" hidden>
+          <svg class="guide" id="guide" viewBox="0 0 100 100" aria-hidden="true" hidden><path d="M8 100 C 10 80, 24 74, 37 71 L 37 64 C 28 58, 27 47, 27 38 C 27 22, 37 12, 50 12 C 63 12, 73 22, 73 38 C 73 47, 72 58, 63 64 L 63 71 C 76 74, 90 80, 92 100" /></svg></div>
+        <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:160px"><span class="small muted">Fit your head and shoulders inside the outline and look at the camera. Your photo is taken when you tap Check me in.</span>
           <label class="btn ghost small" for="fPhoto" id="pickLbl" hidden style="align-self:flex-start">Take photo instead</label><input type="file" id="fPhoto" accept="image/*" capture="user" hidden></div></div></div>
     <label class="consent"><input type="checkbox" id="fConsent"><span>I agree that my name, organisation and photo will be shown on the welcome screen and kept in this programme's register.</span></label>
     <div class="err" id="fErr" role="alert"></div>
@@ -139,6 +145,7 @@
     <div class="me"><span class="ph" id="rPh"></span><div><span class="lbl">You're checked in</span><b id="rName"></b><span class="small muted" id="rIn"></span></div></div>
     <div class="fld"><span>Your group <span class="hint" style="display:inline">(if the facilitator gave you one)</span></span>
       <div class="groups" id="groups" role="group" aria-label="Your group"><button type="button" data-g="A">Group A</button><button type="button" data-g="all">No group</button><button type="button" data-g="B">Group B</button></div></div>
+    <div class="learn" id="endBox" hidden></div>
     <div class="act" id="act" hidden aria-live="polite"></div>
     <div class="learn" id="learn" hidden></div>
     <div class="now" id="now"><span class="lbl">On the screen</span><b id="nowTxt">Waiting for the session to start</b></div>
@@ -149,7 +156,9 @@
     <img src="../assets/icon.svg" alt="" width="64" height="64">
     <h1><span lang="yo">Ó dàbọ̀</span> · Goodbye</h1>
     <p class="muted" style="font-size:17px">You've tapped out. Thank you for attending. Your items stay on this page.</p>
-    <button class="btn ghost" type="button" id="byeRoom">Back to my items</button>
+    <p id="byeTime" style="font-weight:700"></p>
+    <div class="row"><button class="btn red" type="button" id="byeBack">I'm back: check in again</button><button class="btn ghost" type="button" id="byeRoom">Back to my items</button></div>
+    <div class="err" id="byeErr" role="alert"></div>
   </section>
 </main>
 <div class="dock" id="dock" hidden><button class="btn ghost" type="button" id="outBtn">Tap out</button></div>

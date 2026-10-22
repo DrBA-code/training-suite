@@ -16,6 +16,11 @@
   const fmtTime = t => t ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
   let sess = null, me = null, channel = null, items = [], group = "all";
+  // This phone's id: one phone checks in one person per session.
+  const DEV = store.get("ts_dev") || (() => { const d = crypto.randomUUID(); store.set("ts_dev", d); return d; })();
+  const missingFn = e => /Could not find the function|does not exist|schema cache/i.test((e && e.message) || "");
+  const hm = sec => { if (sec == null) return "–"; const m = Math.floor(sec / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
+  const SERVER_SAYS = /valid email|full name|ended|not valid|registered|this phone/i;
   const show = which => ["again", "form", "room", "bye"].forEach(id => ($(id).hidden = id !== which));
   const note = t => { $("note").hidden = !t; $("note").textContent = t || ""; };
 
@@ -30,8 +35,11 @@
     $("hMeta").textContent = [sess.course_lead, sess.date && new Date(sess.date + "T00:00:00").toLocaleDateString([], { day: "numeric", month: "long" }), sess.start_time, sess.venue].filter(Boolean).join(" · ");
     document.title = sess.topic + " · Check-in";
     group = store.get("ts_group_" + code) || "all";
+    if (sess.closed) return note("This programme has closed. Thank you for taking part.");
+    if (sess.roster_only) $("emailHint").textContent = "Use the email you registered with for this programme. Your certificate and results will be sent there.";
     const here = store.get("ts_in_" + code), mine = store.get("ts_me_" + sess.pkey);
     if (here && mine) { me = { ...mine, arrived_at: here.arrived_at }; return openRoom(); }
+    if (sess.ended && mine) { me = { ...mine }; return openRoom(); }
     if (!sess.open) return note("This session has ended. Check-in is closed.");
     if (mine) { $("aName").textContent = fullName(mine.title, mine.name); $("aPh").innerHTML = mine.photo ? `<img src="${esc(mine.photo)}" alt="">` : esc(initials(mine.name)); return show("again"); }
     openForm();
@@ -40,7 +48,9 @@
   // ---------- one tap for returning people ----------
   $("aGo").addEventListener("click", async () => {
     const mine = store.get("ts_me_" + sess.pkey); $("aErr").textContent = "Checking you in…";
-    const { data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: mine.token });
+    let { data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: mine.token, p_device: DEV });
+    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: mine.token }));
+    if (error && SERVER_SAYS.test(error.message)) return ($("aErr").textContent = error.message);
     if (error || !data) { $("aErr").textContent = ""; return openForm(); }
     done(data);
   });
@@ -58,7 +68,7 @@
     show("form");
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
-      const v = $("video"); v.srcObject = stream; v.hidden = false; $("camMsg").hidden = true; await v.play().catch(() => {});
+      const v = $("video"); v.srcObject = stream; v.hidden = false; $("guide").removeAttribute("hidden"); $("camMsg").hidden = true; await v.play().catch(() => {});
     } catch { $("camMsg").textContent = "Camera not available"; $("pickLbl").hidden = false; }
   }
   $("fPhoto").addEventListener("change", e => {
@@ -91,9 +101,11 @@
       const up = await sb.storage.from("ts-photos").upload(path, blob, { contentType: "image/jpeg" });
       if (!up.error) photo = sb.storage.from("ts-photos").getPublicUrl(path).data.publicUrl;
     } catch {}
-    const { data, error } = await sb.rpc("checkin", { p_code: code, p_title: title, p_name: name, p_email: email, p_org: org, p_photo: photo });
+    const args = { p_code: code, p_title: title, p_name: name, p_email: email, p_org: org, p_photo: photo };
+    let { data, error } = await sb.rpc("checkin", { ...args, p_device: DEV });
+    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin", args));
     $("fGo").disabled = false;
-    if (error) return ($("fErr").textContent = /valid email|full name|ended|not valid/i.test(error.message) ? error.message : "Couldn't check you in. Check the connection and try again.");
+    if (error) return ($("fErr").textContent = SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you in. Check the connection and try again.");
     if (stream) stream.getTracks().forEach(t => t.stop());
     done(data);
   });
@@ -111,11 +123,13 @@
     $("rName").textContent = fullName(me.title, me.name);
     $("rPh").innerHTML = me.photo ? `<img src="${esc(me.photo)}" alt="">` : esc(initials(me.name));
     $("rIn").textContent = me.arrived_at ? "Checked in at " + fmtTime(me.arrived_at) : "";
+    loadTime();
     pickGroup(group);
     await loadItems(); render(false);
     if (channel) return;
     channel = sb.channel("ts-" + code, { config: { broadcast: { self: false }, presence: { key: crypto.randomUUID() } } });
     channel.on("broadcast", { event: "live" }, () => refreshLive());
+    channel.on("broadcast", { event: "ended" }, () => sessionEnded());
     channel.on("broadcast", { event: "winner" }, ({ payload }) => { if (payload?.name) $("nowTxt").textContent = payload.name + " caught it first!"; });
     channel.on("broadcast", { event: "now" }, ({ payload }) => { $("nowTxt").textContent = payload?.label || "The session is on"; });
     channel.on("broadcast", { event: "share" }, async ({ payload }) => {
@@ -130,7 +144,9 @@
     });
     document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await loadItems(); render(false); refreshLive(true); } });
     setInterval(() => { if (!document.hidden && !$("room").hidden) refreshLive(); }, 5000);
+    setInterval(() => { if (!document.hidden) loadTime(); }, 60000);
     refreshLive(true); loadLearning();
+    if (sess.ended) sessionEnded();
   }
   async function loadItems() {
     const { data } = await sb.rpc("room_items", { p_code: code, p_token: me.token });
@@ -288,9 +304,45 @@
     b.disabled = false; b.dataset.sure = ""; b.textContent = "Tap out";
     if (error && !/Already/.test(error.message)) return note("Couldn't tap you out. Check the connection and try again.");
     channel?.send({ type: "broadcast", event: "checkin", payload: {} });
-    $("dock").hidden = true; show("bye"); buzz(40);
+    store.set("ts_in_" + code, null);
+    $("dock").hidden = true; show("bye"); buzz(40); loadTime();
   });
   $("byeRoom").addEventListener("click", () => { show("room"); });
+  $("byeBack").addEventListener("click", async () => {
+    $("byeErr").textContent = "Checking you back in…";
+    let { data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: me.token, p_device: DEV });
+    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: me.token }));
+    if (error || !data) return ($("byeErr").textContent = error && SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you back in. Try again.");
+    $("byeErr").textContent = "";
+    store.set("ts_in_" + code, { arrived_at: data.arrived_at });
+    channel?.send({ type: "broadcast", event: "checkin", payload: {} });
+    show("room"); $("dock").hidden = false; buzz([30, 40, 60]); loadTime();
+  });
+
+  // ---------- time spent, and the end of the session ----------
+  let ended = false;
+  async function loadTime() {
+    if (!me) return;
+    const { data } = await sb.rpc("my_attendance", { p_code: code, p_token: me.token });
+    if (!data) return;
+    const away = data.away_seconds ? ` · ${hm(data.away_seconds)} away` : "";
+    const line = `Checked in at ${fmtTime(data.arrived_at)} · ${hm(data.spent_seconds)} in the session${away}`;
+    $("rIn").textContent = line;
+    $("byeTime").textContent = `Time in the session: ${hm(data.spent_seconds)}${away}. You can check back in any time before the session ends.`;
+    if (data.ended && !ended) sessionEnded(data);
+  }
+  async function sessionEnded(d) {
+    ended = true;
+    if (!d) { const r = await sb.rpc("my_attendance", { p_code: code, p_token: me.token }); d = r.data || {}; }
+    const ps = await sb.rpc("public_session", { p_code: code }); if (ps.data) sess = ps.data;
+    $("dock").hidden = true; $("act").hidden = true; show("room");
+    $("endBox").hidden = false;
+    $("endBox").innerHTML = `<span class="lbl" style="color:var(--yellow)">Session ended</span><b>Thank you for taking part</b>
+      ${d.spent_seconds != null ? `<div class="pp"><div><span class="small">Time in the session</span><b>${hm(d.spent_seconds)}</b></div><div><span class="small">Time away</span><b>${hm(d.away_seconds || 0)}</b></div></div>` : ""}
+      <span class="small" style="color:#C9CEC6">Your items stay on this page${sess.closes_at ? " until " + new Date(sess.closes_at).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" }) : ""}.</span>`;
+    $("nowTxt").textContent = "The session has ended";
+    loadLearning(); buzz([30, 40, 60]);
+  }
 
   boot();
 })();

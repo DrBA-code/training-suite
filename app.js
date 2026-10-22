@@ -165,9 +165,9 @@
     $("landing").hidden = true; $("auth").hidden = true; $("shell").hidden = false;
     $("meName").textContent = profile.full_name || profile.email;
     $("meRole").textContent = (profile.role === "programme_lead" ? "Programme Lead" : "Course Lead") + (profile.plan ? " · " + profile.plan : "");
-    document.querySelectorAll("#mainNav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === r || (r === "session" && a.dataset.nav === "sessions") ? "page" : "false"));
+    document.querySelectorAll("#mainNav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === r || (r === "session" && a.dataset.nav === "sessions") || (r === "people" && a.dataset.nav === "programmes") ? "page" : "false"));
     if (!loaded) await loadData();
-    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), present: () => viewPresent(arg), library: () => viewSoon("Library", "Collections of ready-made questions, case studies, slides and evaluation templates you can drop into any session."), reports: () => viewSoon("Reports", "Cross-session reports for your programmes: attendance, learning achievement and evaluation, ready to print or send."), settings: viewSettings };
+    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), people: () => viewPeople(arg), present: () => viewPresent(arg), library: () => viewSoon("Library", "Collections of ready-made questions, case studies, slides and evaluation templates you can drop into any session."), reports: () => viewSoon("Reports", "Cross-session reports for your programmes: attendance, learning achievement and evaluation, ready to print or send."), settings: viewSettings };
     (V[r] || viewDashboard)();
     $("view").focus({ preventScroll: true }); scrollTo({ top: 0 });
   }
@@ -229,10 +229,10 @@
       const open = !!openProg[p.id];
       return `<section class="prog"><button type="button" data-open="${p.id}" aria-expanded="${open}">
           <span class="sw" style="background:${["#D2391F", "#2747C8", "#F4B400", "#14161C"][progs.indexOf(p) % 4]}"></span>
-          <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}</span></span>
+          <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}${p.roster_only ? " · Registered list only" : ""}</span></span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}
           <span class="meta meta2">${ss.length} session${ss.length === 1 ? "" : "s"}</span><span class="sign">${open ? "HIDE −" : "SESSIONS +"}</span></button>
         ${open ? `<div class="inside">${ss.map(s => { const [t, c] = statusOf(s); return `<a class="srow" href="#/session/${s.id}"><span><b>${esc(s.topic)}</b><small>${esc(fmtDate(s.session_date))}${s.start_time ? " · " + esc(s.start_time) : ""}</small></span><span class="badge ${c}">${t}</span><span class="ok">Open →</span></a>`; }).join("") || `<p class="muted" style="padding:6px 0 12px">No sessions in this programme yet.</p>`}
-          <div class="row" style="margin-top:10px"><a class="btn ghost small" href="#/new?p=${p.id}">+ Add a session</a><a class="btn ghost small" href="#/programmes?edit=${p.id}">Edit programme</a><button class="btn danger small" type="button" data-del="${p.id}">Delete</button></div>
+          <div class="row" style="margin-top:10px"><a class="btn ghost small" href="#/new?p=${p.id}">+ Add a session</a><a class="btn ghost small" href="#/people/${p.id}">Participants</a><a class="btn ghost small" href="#/programmes?edit=${p.id}">Edit programme</a><button class="btn danger small" type="button" data-del="${p.id}">Delete</button></div>
           <div data-delbox="${p.id}"></div></div>` : ""}</section>`;
     }).join("");
     V(head("Programmes", "Your programmes", `<a class="btn" href="#/programmes?new=1">+ New programme</a>`) +
@@ -525,7 +525,11 @@
         <div class="confirm" style="border-color:var(--line-2)"><b>Delete this session</b><span class="small muted">Removes the session, its files and its results. Type the topic to confirm.</span><div class="row"><input class="in" id="delIn" style="max-width:360px" autocomplete="off" aria-label="Session topic"><button class="btn danger small" type="button" id="delGo">Delete session</button><span class="err" id="delErr"></span></div></div>`;
     } else if (sessTab === "attendance") {
       body = `<div class="row" style="gap:24px;align-items:center;border:1.5px solid var(--ink);padding:22px"><div class="qr">${qrSvg(checkinLink(s.attendance_code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Check-in code</span><span class="code">${esc(s.attendance_code)}</span><span class="small" style="font-family:var(--mono);word-break:break-all">${esc(checkinLink(s.attendance_code))}</span><button class="btn ghost small" type="button" id="copyLink" style="align-self:flex-start">Copy link</button></div></div>
-        <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Register <span class="muted" id="regN" style="font-family:var(--body);font-weight:500;font-size:16px"></span></h2><div class="row"><button class="btn ghost small" type="button" id="regRefresh">Refresh</button><button class="btn small" type="button" id="regCsv">Download (Excel/CSV)</button></div></div>
+        <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Register <span class="muted" id="regN" style="font-family:var(--body);font-weight:500;font-size:16px"></span></h2><div class="row"><button class="btn ghost small" type="button" id="regAdd">+ Check someone in</button><button class="btn ghost small" type="button" id="regRefresh">Refresh</button><button class="btn small" type="button" id="regCsv">Download (Excel/CSV)</button></div></div>
+        <form id="regForm" class="grid2" hidden novalidate style="border:1.5px solid var(--ink);padding:18px"><span class="lbl full">For someone without a phone, or sharing one. Their time starts now.</span>
+          <label class="fld">Title<select name="t">${TITLES.map(t => `<option>${t}</option>`).join("")}</select></label><label class="fld">Full name, as on the certificate<input name="n"></label>
+          <label class="fld">Email<input name="e" type="email"></label><label class="fld">Organisation<input name="o"></label>
+          <div class="row full"><button class="btn red" type="submit">Check in</button><span class="err" id="raErr" role="alert"></span></div></form>
         <div class="tablewrap"><table class="t" id="regTable"><tbody><tr><td class="muted">Loading…</td></tr></tbody></table></div>`;
     } else if (sessTab === "assess") {
       body = `<div id="actList"><p class="muted">Loading…</p></div>`;
@@ -537,7 +541,7 @@
     }
     V(`<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
         <div class="row"><span class="badge ${sc}" style="padding:10px 14px">${st}</span><a class="btn ghost small" href="#/edit/${s.id}">Edit</a>
-        ${s.status === "completed" ? `<a class="btn ghost small" href="#/present/${s.id}">Open live screen</a>` : s.status === "live" ? `<a class="btn red" href="#/present/${s.id}">▶ Back to live screen</a><button class="btn ghost small" type="button" id="stopRun">Stop</button>` : `<button class="btn red" type="button" id="startRun">▶ Start session</button>`}</div></div>
+        ${s.status === "completed" ? `<button class="btn ghost small" type="button" id="reopenRun">Reopen session</button>` : s.status === "live" ? `<a class="btn red" href="#/present/${s.id}">▶ Back to live screen</a><button class="btn ghost small" type="button" id="endRun">End session</button>` : `<button class="btn red" type="button" id="startRun">▶ Start session</button>`}</div></div>
       <div class="tabbar" role="tablist" aria-label="Session">${T.map(([k, n]) => `<button type="button" role="tab" aria-selected="${sessTab === k}" data-stab="${k}">${n}</button>`).join("")}</div>${body}`);
     const v = $("view");
     v.querySelectorAll("[data-stab]").forEach(b => b.addEventListener("click", () => { sessTab = b.dataset.stab; viewSession(id); }));
@@ -546,7 +550,16 @@
     if (sessTab === "attendance") loadRegister(s);
     if (sessTab === "assess") drawActs(s);
     if (sessTab === "learning") drawLearning(s);
-    $("stopRun")?.addEventListener("click", () => save({ status: "ready", progress: 0 }));
+    $("endRun")?.addEventListener("click", () => {
+      const b = $("endRun");
+      if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to end for everyone"; setTimeout(() => { if (b.isConnected) { b.dataset.sure = ""; b.textContent = "End session"; } }, 4000); return; }
+      endSession(s);
+    });
+    $("reopenRun")?.addEventListener("click", async () => {
+      const { error } = await sb.rpc("reopen_session", { p_session: id });
+      if (error) return toast(errText(error, "Couldn't reopen.").replace("schema.sql", "schema-4-attendance.sql"));
+      await loadData(); toast("Session reopened"); viewSession(id);
+    });
     $("markDone")?.addEventListener("click", () => { const n = s.progress + 1; save(n >= steps.length ? { status: "completed", progress: steps.length } : { progress: n }); });
     $("copyLink")?.addEventListener("click", async () => { try { await navigator.clipboard.writeText(checkinLink(s.attendance_code)); toast("Link copied"); } catch { toast(checkinLink(s.attendance_code)); } });
     v.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", async () => {
@@ -562,28 +575,143 @@
     });
   }
 
+  // End a session for everyone: phones show their summary; the programme completes after its last session.
+  async function endSession(s) {
+    const { data, error } = await sb.rpc("end_session", { p_session: s.id });
+    if (error) return toast(errText(error, "Couldn't end the session.").replace("schema.sql", "schema-4-attendance.sql"));
+    const ch = sb.channel("ts-" + s.attendance_code, { config: { broadcast: { self: false } } });
+    ch.subscribe(st => { if (st === "SUBSCRIBED") { ch.send({ type: "broadcast", event: "ended", payload: {} }); setTimeout(() => (sb.removeChannel ? sb.removeChannel(ch) : ch.unsubscribe?.()), 1500); } });
+    await loadData();
+    toast(data?.programme_completed ? "Session ended. That was the last one: the programme is completed." : "Session ended. The room is closed on every phone.");
+    if (location.hash === "#/session/" + s.id) viewSession(s.id);
+  }
+
   // ---------- register (Attendance tab) ----------
   const fmtT = t => t ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-  const dur = (a, b) => { if (!a || !b) return ""; const m = Math.round((new Date(b) - new Date(a)) / 60000); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
+  const hm = sec => { if (sec == null) return "–"; const m = Math.round(sec / 60); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
   const pName = r => (r.title ? (r.title === "Miss" || r.title === "Ms" ? r.title + " " : r.title + ". ") : "") + r.name;
+  const TITLES = ["", "Prof", "Dr", "Engr", "Mr", "Mrs", "Miss", "Ms"];
+  const normName = n => String(n || "").toLowerCase().replace(/^(prof|dr|engr|mr|mrs|miss|ms)\.?\s+/, "").replace(/[^a-z ]/g, "").split(/\s+/).filter(Boolean).sort().join(" ");
   async function loadRegister(s) {
+    const add = $("regAdd"), form = $("regForm");
+    add.onclick = () => { form.hidden = !form.hidden; if (!form.hidden) form.n.focus(); };
+    form.onsubmit = async e => {
+      e.preventDefault();
+      $("raErr").textContent = "Checking in…";
+      const { error } = await sb.rpc("facilitator_checkin", { p_session: s.id, p_title: form.t.value, p_name: form.n.value.trim(), p_email: form.e.value.trim(), p_org: form.o.value.trim() });
+      if (error) return ($("raErr").textContent = errText(error, "Couldn't check them in.").replace("schema.sql", "schema-4-attendance.sql"));
+      $("raErr").textContent = ""; form.reset(); form.hidden = true; toast("Checked in"); draw();
+    };
     const draw = async () => {
       const { data, error } = await sb.rpc("session_roll", { p_session: s.id });
       const t = $("regTable"); if (!t) return;
       if (error) { t.innerHTML = `<tbody><tr><td class="muted">${esc(errText(error, "Couldn't load the register.")).replace("schema.sql", "schema-2-participants.sql")}</td></tr></tbody>`; return; }
       const rows = data || [];
+      // the same name under two emails is probably one person
+      const byName = {}; rows.forEach(r => { const k = normName(r.name); if (k) (byName[k] = byName[k] || []).push(r); });
+      // keep the listed one, then the one checked in on a phone (has a photo), then the earliest arrival
+      const rank = x => (x.preloaded ? 0 : 2) + (x.photo ? 0 : 1);
+      const keeperOf = r => [...(byName[normName(r.name)] || [])].sort((a, b) => rank(a) - rank(b) || new Date(a.arrived_at) - new Date(b.arrived_at))[0];
+      const dupOf = r => (byName[normName(r.name)] || []).length > 1 ? [keeperOf(r)].filter(k => k.participant !== r.participant) : [];
+      const isDup = r => (byName[normName(r.name)] || []).length > 1;
+      const away = r => (r.periods || []).map(p => `${fmtT(p.out)}–${fmtT(p.back)}`).concat(r.left_at ? [`${fmtT(r.left_at)}–`] : []).join(", ");
       $("regN").textContent = `· ${rows.length} checked in · ${rows.filter(r => r.left_at).length} tapped out`;
-      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>In</th><th>Out</th><th>Time</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td><td><b>${esc(pName(r))}</b></td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td><td>${fmtT(r.arrived_at)}</td><td>${fmtT(r.left_at) || "–"}</td><td>${dur(r.arrived_at, r.left_at) || "–"}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
+      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>In</th><th>Away</th><th>Out</th><th>Time spent</th><th></th></tr></thead><tbody>${rows.map((r, i) => {
+        const d = dupOf(r);
+        return `<tr><td>${i + 1}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td>
+          <td><b>${esc(pName(r))}</b>${isDup(r) ? `<br><span class="flag">Possible duplicate</span>` : ""}</td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td>
+          <td>${fmtT(r.arrived_at)}</td><td>${r.away_seconds || r.left_at ? `<span title="${esc(away(r))}">${hm(r.away_seconds)}</span><br><small class="muted">${esc(away(r))}</small>` : "–"}</td>
+          <td>${fmtT(r.left_at) || "–"}</td><td><b>${hm(r.spent_seconds)}</b></td>
+          <td>${d.length ? `<button class="btn ghost small" type="button" data-merge="${r.participant}" data-into="${d[0].participant}">Merge into ${esc(d[0].email)}</button>` : ""}</td></tr>`;
+      }).join("") || `<tr><td colspan="10" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
+      t.querySelectorAll("[data-merge]").forEach(b => b.addEventListener("click", async () => {
+        if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to merge"; return; }
+        const { error } = await sb.rpc("merge_participants", { p_keep: b.dataset.into, p_drop: b.dataset.merge });
+        if (error) return toast(errText(error, "Couldn't merge.").replace("schema.sql", "schema-4-attendance.sql"));
+        toast("Merged into one person"); draw();
+      }));
       $("regCsv").onclick = () => {
-        const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
         const p = progs.find(x => x.id === s.programme_id) || {};
-        const lines = [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [], ["#", "Title", "Name", "Email", "Organisation", "Time in", "Time out", "Duration", "Photo"],
-          ...rows.map((r, i) => [i + 1, r.title, r.name, r.email, r.organisation, fmtT(r.arrived_at), fmtT(r.left_at), dur(r.arrived_at, r.left_at), r.photo])].map(r => r.map(q).join(",")).join("\r\n");
-        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + lines], { type: "text/csv;charset=utf-8" }));
-        a.download = `Register - ${s.topic.replace(/[\\/:*?"<>|]/g, "-").slice(0, 60)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        csvDownload(`Register - ${s.topic}`, [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [],
+          ["#", "Title", "Name", "Email", "Organisation", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Photo"],
+          ...rows.map((r, i) => [i + 1, r.title, r.name, r.email, r.organisation, fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), r.photo])]);
       };
     };
     $("regRefresh").onclick = draw;
+    draw();
+  }
+
+  // ---------- participants of a programme (preloaded list) ----------
+  // Accepts pasted Excel rows (tabs) or CSV: any order, the email is found by its @; a title in front of the name is kept.
+  function parseRoster(text) {
+    const out = [];
+    text.split(/\r?\n/).forEach(line => {
+      const cells = (line.includes("\t") ? line.split("\t") : line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)).map(c => c.trim().replace(/^"|"$/g, "").trim());
+      const ei = cells.findIndex(c => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c));
+      if (ei < 0) return;
+      const rest = cells.filter((c, i) => i !== ei && c);
+      let title = "";
+      if (rest.length && TITLES.includes(rest[0].replace(/\.$/, "")) && rest[0]) title = rest.shift().replace(/\.$/, "");
+      let name = rest.shift() || "";
+      const m = name.match(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+(.+)$/i);
+      if (m && !title) { title = TITLES.find(t => t.toLowerCase() === m[1].toLowerCase()) || ""; name = m[2]; }
+      out.push({ title, name, email: cells[ei].toLowerCase(), org: rest.shift() || "" });
+    });
+    return out;
+  }
+  async function viewPeople(pid) {
+    const p = progs.find(x => x.id === pid);
+    if (!p) return V(`<p class="muted">Programme not found. <a href="#/programmes">Back to programmes</a></p>`);
+    V(`<div class="pagehead"><div><span class="lbl"><a href="#/programmes">Programmes</a> / ${esc(p.name)}</span><h1>Participants</h1></div></div>
+      <div class="grid2">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <span class="lbl">Who can check in</span>
+          <label class="opt"><input type="radio" name="ro" value="0" ${!p.roster_only ? "checked" : ""}><span><b>Anyone with the code</b><span class="muted">People register themselves at check-in.</span></span></label>
+          <label class="opt"><input type="radio" name="ro" value="1" ${p.roster_only ? "checked" : ""}><span><b>Only people on the list below</b><span class="muted">Anyone else sees: “This email isn't registered for this programme. Use the email you registered with.”</span></span></label>
+          <label class="fld" style="max-width:320px">After the programme ends, participants can open their page for<select id="accDays">${[[7, "1 week"], [14, "2 weeks"], [30, "30 days"], [90, "3 months"], [365, "1 year"]].map(([d, t]) => `<option value="${d}" ${p.access_days === d ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          <div class="row"><button class="btn" type="button" id="ppSave">Save</button><span class="err" id="ppMsg" role="status"></span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <span class="lbl">Add people</span>
+          <label class="fld">Paste from Excel, or type one person per line<span class="hint">Title, name, email, organisation. The order doesn't matter as long as each line has an email.</span>
+            <textarea id="ppPaste" rows="6" placeholder="Dr	Ada Obi	ada.obi@lagosstate.gov.ng	Ministry of Health&#10;Mr Bola Ade, bola.ade@lagosstate.gov.ng, PSSDC"></textarea></label>
+          <div class="row"><label class="btn ghost small">Upload CSV<input type="file" id="ppFile" accept=".csv,.txt,text/csv" hidden></label><button class="btn red" type="button" id="ppAdd">Add to the list</button><span class="err" id="ppAddMsg" role="status"></span></div>
+        </div>
+      </div>
+      <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">People <span class="muted" id="ppN" style="font-family:var(--body);font-weight:500;font-size:16px"></span></h2><button class="btn small" type="button" id="ppCsv">Download (Excel/CSV)</button></div>
+      <div class="tablewrap"><table class="t" id="ppTable"><tbody><tr><td class="muted">Loading…</td></tr></tbody></table></div>`);
+    let people = [];
+    const draw = async () => {
+      const { data, error } = await sb.rpc("programme_people", { p_programme: pid });
+      const t = $("ppTable"); if (!t) return;
+      if (error) { t.innerHTML = `<tbody><tr><td class="muted">${esc(errText(error, "Couldn't load.").replace("schema.sql", "schema-4-attendance.sql"))}</td></tr></tbody>`; return; }
+      people = data || [];
+      const pre = people.filter(x => x.preloaded).length;
+      $("ppN").textContent = `· ${pre} on the list · ${people.length - pre} registered at check-in`;
+      t.innerHTML = `<thead><tr><th>Name</th><th>Email</th><th>Organisation</th><th>On the list</th><th>Sessions attended</th><th></th></tr></thead><tbody>${people.map(x => `<tr><td><b>${esc(pName(x))}</b></td><td>${esc(x.email)}</td><td>${esc(x.organisation)}</td>
+        <td>${x.preloaded ? `<span class="ok">Yes</span>` : `<span class="muted">No</span>`}</td><td>${x.sessions}</td><td>${x.preloaded ? `<button class="btn ghost small" type="button" data-rm="${x.id}">Remove</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">No one yet. Paste your list above, or let people register at check-in.</td></tr>`}</tbody>`;
+      t.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", async () => {
+        const { error } = await sb.rpc("roster_remove", { p_participant: b.dataset.rm });
+        if (error) return toast(errText(error, "Couldn't remove.")); draw();
+      }));
+    };
+    $("ppSave").onclick = async () => {
+      const row = { roster_only: document.querySelector('input[name="ro"]:checked').value === "1", access_days: +$("accDays").value };
+      const { data, error } = await sb.from("programmes").update(row).eq("id", pid).select().single();
+      if (error) return ($("ppMsg").textContent = errText(error, "Couldn't save.").replace("schema.sql", "schema-4-attendance.sql"));
+      progs = progs.map(x => x.id === pid ? data : x); $("ppMsg").textContent = "Saved ✓";
+    };
+    $("ppFile").onchange = async e => { const f = e.target.files[0]; if (f) { $("ppPaste").value = await f.text(); $("ppAddMsg").textContent = `${parseRoster($("ppPaste").value).length} people found. Press Add to the list.`; } };
+    $("ppAdd").onclick = async () => {
+      const rows = parseRoster($("ppPaste").value), msg = $("ppAddMsg");
+      if (!rows.length) return (msg.textContent = "No emails found. Each line needs an email address.");
+      msg.textContent = "Adding…";
+      const { data, error } = await sb.rpc("roster_import", { p_programme: pid, p_rows: rows });
+      if (error) return (msg.textContent = errText(error, "Couldn't add.").replace("schema.sql", "schema-4-attendance.sql"));
+      msg.textContent = `${data.added} added, ${data.updated} already there${data.skipped ? `, ${data.skipped} skipped (bad email)` : ""}.`;
+      $("ppPaste").value = ""; draw();
+    };
+    $("ppCsv").onclick = () => csvDownload(`Participants - ${p.name}`, [["Title", "Name", "Email", "Organisation", "On the list", "Sessions attended"], ...people.map(x => [x.title, x.name, x.email, x.organisation, x.preloaded ? "Yes" : "No", x.sessions])]);
     draw();
   }
 
@@ -898,11 +1026,7 @@
     if (!P) return;
     const b = $("stNext");
     if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to finish the session"; setTimeout(() => { if (P) { b.dataset.sure = ""; goItem(P.i); } }, 4000); return; }
-    const id = P.s.id;
-    const { data } = await sb.from("sessions").update({ status: "completed", progress: 999 }).eq("id", id).select().single();
-    if (data) sessions = sessions.map(x => x.id === id ? data : x);
-    exitPresent("#/session/" + id);
-    toast("Session completed");
+    const s = P.s; exitPresent("#/session/" + s.id); endSession(s);
   }
   $("stPrev").addEventListener("click", () => P && goItem(P.i - 1));
   $("stNext").addEventListener("click", () => { if (!P) return; if (P.i >= P.items.length - 1) finishSession(); else goItem(P.i + 1); });

@@ -37,3 +37,14 @@ Run `supabase/schema-3-activities.sql` once in the Supabase SQL Editor (after sc
 - **Live screen**: when the flow reaches an activity, press Enter (or ▶ Start). Space moves through open → reveal → next question → leaderboard.
 - **Phones** answer on the check-in page. Scoring happens in the database, and answers stay hidden until you reveal them.
 - **Pre/post test**: the pre-test never shows the answers. After the post-test, each person sees their learning achievement, (post − pre) ÷ (100 − pre). The **Learning** tab lists everyone, with a CSV download.
+
+## Step 1: check-in and attendance
+
+Run `supabase/schema-4-attendance.sql` once (after schema-3).
+
+- **Programmes → Participants**: paste or upload your list, and choose whether only listed emails can check in. You also set how long participants can open their page after the programme ends.
+- **One phone, one person per session.** A second person on the same phone is asked to use their own phone or be checked in by the facilitator (Attendance tab → Check someone in).
+- **Time spent** is time in the session minus time away. A tap-out is counted only if the person checks back in. It is shown on the phone and in the register, with each away period.
+- **Possible duplicates** (the same name under two emails) are flagged in the register, with a Merge button.
+- **End session** closes the room on every phone and shows each person a summary. When the last session ends, the programme is marked Completed. **Reopen session** undoes it.
+- The check-in camera shows a head-and-shoulders outline.
