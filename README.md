@@ -57,3 +57,15 @@ Run `supabase/schema-5-participation.sql` once (after schema-4).
 - The **Participation** tab ranks everyone by how many activities they took part in, then by points. Downloads to CSV.
 - The register CSV includes each person's participation and rank.
 - Each phone shows "Your participation": activities taken part in, points, and rank.
+
+## Step 3: AI (on the Training Suite server key)
+
+1. Run `supabase/schema-6-ai.sql` once.
+2. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor**. Name it `ts-ai`, paste all of `supabase/functions/ts-ai/index.ts`, then **Deploy**.
+3. Supabase → **Edge Functions** → **Secrets** → add `ANTHROPIC_API_KEY` with your key from console.anthropic.com (API Keys). Optionally set `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`).
+
+What it does:
+- **Assessments tab → Draft with AI**: writes questions from the session topic and objectives, for every activity except Spot the error.
+- **Live screen → AI review and feedback** (case study): a summary for the projector, themes, a model answer and the strongest answers. Each group gets personal feedback on their phones.
+- **Live screen → AI summary** (exit tickets): a summary and themes.
+- Each account has a monthly number of AI requests (default 50). The Super Admin changes it in the admin console's Accounts table. Trainers see their use under Settings.

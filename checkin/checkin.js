@@ -130,6 +130,7 @@
     channel = sb.channel("ts-" + code, { config: { broadcast: { self: false }, presence: { key: crypto.randomUUID() } } });
     channel.on("broadcast", { event: "live" }, () => refreshLive());
     channel.on("broadcast", { event: "ended" }, () => sessionEnded());
+    channel.on("broadcast", { event: "feedback" }, () => loadFeedback(true));
     channel.on("broadcast", { event: "winner" }, ({ payload }) => { if (payload?.name) $("nowTxt").textContent = payload.name + " caught it first!"; });
     channel.on("broadcast", { event: "now" }, ({ payload }) => { $("nowTxt").textContent = payload?.label || "The session is on"; });
     channel.on("broadcast", { event: "share" }, async ({ payload }) => {
@@ -145,7 +146,7 @@
     document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await loadItems(); render(false); refreshLive(true); } });
     setInterval(() => { if (!document.hidden && !$("room").hidden) refreshLive(); }, 5000);
     setInterval(() => { if (!document.hidden) loadTime(); }, 60000);
-    refreshLive(true); loadLearning(); loadPart();
+    refreshLive(true); loadLearning(); loadPart(); loadFeedback(false);
     if (sess.ended) sessionEnded();
   }
   async function loadItems() {
@@ -278,6 +279,17 @@
     if (q.answer_pairs) return head + `<div class="ord">${q.answer_pairs.map((p, i) => `<div style="grid-template-columns:1fr"><span>${esc(p.l)} → <b>${esc(p.r)}</b>${a.rights && a.rights[i] === p.r ? " ✓" : ""}</span></div>`).join("")}</div>`;
     if (q.region) return head + `<div class="sp"><img src="${esc(q.image)}" alt=""><span class="tgt" style="left:${q.region.x * 100}%;top:${q.region.y * 100}%;width:${q.region.r * 2 / (q.aspect || 1) * 100}%;aspect-ratio:1"></span>${a.x != null ? `<span class="dot" style="left:${a.x * 100}%;top:${a.y * 100}%"></span>` : ""}</div>`;
     return head + (mine ? mineView(c, q, mine) : "");
+  }
+
+  // ---------- AI feedback on case study answers ----------
+  async function loadFeedback(fresh) {
+    if (!me) return;
+    const { data } = await sb.rpc("my_feedback", { p_code: code, p_token: me.token });
+    const list = Array.isArray(data) ? data : [], box = $("fb");
+    if (!list.length) { box.hidden = true; return; }
+    box.innerHTML = `<span class="lbl">✨ Feedback for you</span>${list.map(f => `<div class="fbi"><small>${esc(f.title || "Case study")}${f.q ? " · " + esc(f.q) : ""}</small><p>${esc(f.feedback)}</p></div>`).join("")}`;
+    box.hidden = false;
+    if (fresh) { buzz([30, 40, 60]); box.scrollIntoView({ behavior: "smooth", block: "center" }); }
   }
 
   // ---------- participation (step 2) ----------

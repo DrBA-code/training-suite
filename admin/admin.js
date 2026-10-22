@@ -31,10 +31,12 @@
   });
   $("signOut").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
 
+  let aiUsed = {};
   async function load() {
     const { data, error } = await sb.from("profiles").select("*").eq("is_admin", false).order("created_at", { ascending: false });
     if (error) toast(error.message);
     rows = data || [];
+    const u = await sb.rpc("admin_ai_usage"); aiUsed = (!u.error && u.data) || {};
     const n = rows.filter(r => r.status === "pending").length;
     $("nPending").hidden = !n; $("nPending").textContent = n;
   }
@@ -64,11 +66,12 @@
     const list = rows.filter(r => r.status !== "pending" && (filter === "all" || r.status === filter));
     $("view").innerHTML = `<div class="pagehead"><div><span class="lbl">Super Admin</span><h1>Accounts</h1></div></div>
       <div class="tabbar" role="tablist">${F.map(([k, n]) => `<button type="button" role="tab" aria-selected="${filter === k}" data-f="${k}">${n}</button>`).join("")}</div>
-      <div class="tablewrap"><table class="t"><thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Plan</th><th>Ends</th><th>Change</th></tr></thead><tbody>
+      <div class="tablewrap"><table class="t"><thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Plan</th><th>Ends</th><th>AI a month</th><th>Change</th></tr></thead><tbody>
       ${list.map(r => { const expired = r.expires_at && new Date(r.expires_at) < new Date(); return `<tr data-id="${r.id}"><td><b style="display:block">${esc(r.full_name || "(no name)")}</b><span class="small muted">${esc(r.email)}</span></td><td>${ROLE(r.role)}</td>
         <td><span class="badge ${r.status === "active" ? (expired ? "soon" : "done") : "draft"}">${r.status === "active" ? (expired ? "Plan ended" : "Active") : r.status === "suspended" ? "Paused" : "Rejected"}</span></td>
         <td><select data-plan>${planOptions(r.plan)}</select></td><td><input type="date" data-ends value="${r.expires_at ? r.expires_at.slice(0, 10) : ""}"></td>
-        <td><div class="row">${r.status === "active" ? `<button class="btn ghost small" type="button" data-act="active">Save plan</button><button class="btn danger small" type="button" data-act="suspended">Pause</button>` : `<button class="btn blue small" type="button" data-act="active">Activate</button>`}</div></td></tr>`; }).join("") || `<tr><td colspan="6" class="muted">No accounts here.</td></tr>`}
+        <td><select data-ai aria-label="AI requests a month">${[[0, "Off"], [20, "20"], [50, "50"], [100, "100"], [300, "300"], [-1, "No limit"]].map(([v, t]) => `<option value="${v}" ${(r.ai_limit ?? 50) === v ? "selected" : ""}>${t}</option>`).join("")}${![0, 20, 50, 100, 300, -1].includes(r.ai_limit ?? 50) ? `<option value="${r.ai_limit}" selected>${r.ai_limit}</option>` : ""}</select><span class="small muted" style="display:block">${aiUsed[r.id] || 0} used</span></td>
+        <td><div class="row">${r.status === "active" ? `<button class="btn ghost small" type="button" data-act="active">Save plan</button><button class="btn danger small" type="button" data-act="suspended">Pause</button>` : `<button class="btn blue small" type="button" data-act="active">Activate</button>`}</div></td></tr>`; }).join("") || `<tr><td colspan="7" class="muted">No accounts here.</td></tr>`}
       </tbody></table></div>`;
     document.querySelectorAll("[data-f]").forEach(b => b.addEventListener("click", () => { filter = b.dataset.f; viewAccounts(); }));
     wire();
@@ -83,8 +86,11 @@
       b.disabled = true;
       const { error } = await sb.rpc("admin_decide", { p_user: tr.dataset.id, p_status: b.dataset.act, p_plan: tr.querySelector("[data-plan]").value,
         p_expires: ends ? new Date(ends + "T23:59:59").toISOString() : null, p_note: "" });
+      const aiSel = tr.querySelector("[data-ai]");
+      const aiErr = aiSel ? (await sb.rpc("admin_set_ai_limit", { p_user: tr.dataset.id, p_limit: +aiSel.value })).error : null;
       b.disabled = false;
       if (error) return toast(error.message);
+      if (aiErr) toast("Plan saved, but the AI limit needs schema-6-ai.sql: " + aiErr.message);
       toast({ active: "Saved: account active", rejected: "Request rejected", suspended: "Account paused" }[b.dataset.act]);
       await load(); route();
     }));

@@ -39,6 +39,14 @@
     if (error) return null;
     return (acts[sid] = data || []);
   }
+  // AI runs on the Training Suite server key (supabase/functions/ts-ai). Returns the reply, or { error }.
+  async function aiCall(body) {
+    try {
+      const { data, error } = await sb.functions.invoke("ts-ai", { body });
+      if (error) return { error: /Failed to send|not found|404/i.test(error.message || "") ? "AI isn't switched on for Training Suite yet (the ts-ai server function isn't deployed)." : (error.message || "The AI request failed.") };
+      return data || { error: "No reply from the AI." };
+    } catch (e) { return { error: (e && e.message) || "The AI request failed." }; }
+  }
   const achievement = (pre, post) => pre == null || post == null ? null : pre >= 100 ? (post >= 100 ? 1 : (post - 100) / 100) : (post - pre) / (100 - pre);
 
   let profile = null, progs = [], sessions = [], loaded = false;
@@ -781,6 +789,11 @@
       body.hidden = false;
       TSA.builder(body, {
         kind: slot, title: a?.title, steps: a?.data?.steps, seconds: a?.data?.seconds,
+        aiWrite: async ({ kind, count, notes }) => {
+          const r = await aiCall({ task: "write_questions", kind, count, notes, topic: s.topic, objectives: s.objectives || [s.main_topic, s.key_skill].filter(Boolean).join("; ") });
+          if (r.error) throw new Error(r.error);
+          return r.steps;
+        },
         upload: async file => {
           const { blob, aspect } = await TSA.shrinkImage(file);
           const dest = `${profile.id}/${s.id}/spot-${crypto.randomUUID()}.jpg`;
@@ -1014,7 +1027,7 @@
     const run = slot === "test" ? (it.key === "pretest" ? "pre" : "post") : "r" + Date.now().toString(36);
     const m = $("stMain"); m.innerHTML = `<div class="lvwrap"></div>`;
     const at = P.i;
-    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0,
+    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0, ai: aiCall,
       onDone: () => { if (P && P.i === at) { if (P.i < P.items.length - 1) goItem(P.i + 1); else { stopRun(); draw(); } } } });
   }
   function drawWelcome() {
@@ -1119,9 +1132,13 @@
         <div class="row"><button class="btn" type="submit">Save</button><span class="err" id="meErr" role="status"></span></div></form>
       <div style="display:flex;flex-direction:column;gap:14px"><span class="lbl">Plan</span>
         <p><b>${esc(profile.plan || "Approved")}</b><br><span class="muted">Ends: ${esc(exp)}</span><br><span class="muted">${esc(profile.email)}</span></p>
+        <p class="note" id="aiUse">AI requests this month: checking…</p>
         <form id="pwForm" style="display:flex;flex-direction:column;gap:14px" novalidate><span class="lbl">Change password</span>
           <label class="fld">New password<input type="password" name="pw" autocomplete="new-password"></label>
           <div class="row"><button class="btn ghost" type="submit">Change password</button><span class="err" id="pwErr" role="status"></span></div></form></div></div>`);
+    sb.rpc("my_ai_usage").then(({ data, error }) => { const el = $("aiUse"); if (!el) return;
+      if (error || !data) { el.textContent = "AI requests: not set up yet."; return; }
+      el.textContent = data.limit === 0 ? "AI isn't included in your plan." : data.limit < 0 ? `AI requests this month: ${data.used} (no limit)` : `AI requests this month: ${data.used} of ${data.limit}`; });
     $("meForm").addEventListener("submit", async e => {
       e.preventDefault(); const f = e.target;
       const { data, error } = await sb.rpc("update_my_profile", { p_full_name: f.n.value, p_phone: f.ph.value, p_where_train: f.w.value });

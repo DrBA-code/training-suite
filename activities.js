@@ -65,6 +65,7 @@ window.TSA = (() => {
     const SECS = [0, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 600];
     el.innerHTML = `<div class="bld">
       <label class="fld">Title<input data-b="title" value="${esc(B.title)}" placeholder="${esc(k.name)}"></label>
+      ${o.aiWrite && kind !== "spot" ? `<div class="aiw"><span class="aiw-l">✨ Draft with AI</span><select data-b="aicount" aria-label="How many">${[1, 2, 3, 5, 8, 10].map(n => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select><input data-b="ainotes" placeholder="Anything to focus on? (optional)" aria-label="Notes for the AI"><button class="btn small" type="button" data-b="ai">Write ${PROMPTY(kind) ? "prompts" : "questions"}</button></div>` : ""}
       <div class="bsteps" data-b="steps"></div>
       <div class="row"><button class="btn ghost small" type="button" data-b="add">+ Add ${PROMPTY(kind) ? "another prompt" : "question"}</button></div>
       <label class="fld" style="max-width:260px">Time per ${PROMPTY(kind) ? "prompt" : "question"}<select data-b="sec">${SECS.map(s => `<option value="${s}" ${s === B.seconds ? "selected" : ""}>${s ? (s >= 60 ? s / 60 + " min" : s + " seconds") : "No timer"}</option>`).join("")}</select></label>
@@ -98,6 +99,18 @@ window.TSA = (() => {
     const draw = () => (stepsEl.innerHTML = B.steps.map(card).join(""));
     draw();
     q("title").addEventListener("input", e => (B.title = e.target.value));
+    q("ai")?.addEventListener("click", async () => {
+      const b = q("ai"); b.disabled = true; errEl.textContent = "Writing with AI… this takes a few seconds.";
+      try {
+        const got = await o.aiWrite({ kind, count: +q("aicount").value, notes: q("ainotes").value.trim() });
+        const ok = (Array.isArray(got) ? got : []).map(st => normalise(kind, st)).filter(Boolean);
+        if (!ok.length) throw new Error("The AI didn't return usable questions. Try again.");
+        const blank = B.steps.length === 1 && !String(B.steps[0].q || "").trim();
+        B.steps = blank ? ok : B.steps.concat(ok);
+        draw(); errEl.textContent = `${ok.length} drafted. Check them, edit anything, then save.`;
+      } catch (e) { errEl.textContent = (e && e.message) || "AI couldn't write questions."; }
+      b.disabled = false;
+    });
     q("sec").addEventListener("change", e => (B.seconds = +e.target.value));
     q("add").addEventListener("click", () => { B.steps.push(blankStep(kind)); draw(); stepsEl.lastElementChild?.querySelector("textarea")?.focus(); });
     q("cancel").addEventListener("click", () => o.onCancel && o.onCancel());
@@ -138,6 +151,22 @@ window.TSA = (() => {
       draw();
     });
   }
+  // Bring an AI-drafted item into the builder's shape (or drop it).
+  function normalise(kind, st) {
+    if (!st || typeof st !== "object") return null;
+    const k = KINDS[kind], out = { ...blankStep(kind), q: String(st.q || "").slice(0, 500) };
+    if (!out.q) return null;
+    if (k.opts) {
+      out.options = (Array.isArray(st.options) ? st.options : []).map(x => String(x).slice(0, 200)).filter(Boolean).slice(0, 6);
+      if (out.options.length < 2) return null;
+      if (k.scored) { const c = Number(st.correct); out.correct = c >= 0 && c < out.options.length ? c : 0; }
+    }
+    if (kind === "words") out.max = [1, 2, 3].includes(+st.max) ? +st.max : 1;
+    if (kind === "order") { out.items = (st.items || []).map(String).filter(Boolean).slice(0, 8); if (out.items.length < 3) return null; }
+    if (kind === "match") { out.pairs = (st.pairs || []).filter(p => p && p.l && p.r).map(p => ({ l: String(p.l), r: String(p.r) })).slice(0, 8); if (out.pairs.length < 2) return null; }
+    if (kind === "case") out.text = String(st.text || "").slice(0, 4000);
+    return out;
+  }
   function shrinkImage(file, max = 1600) {
     return new Promise((res, rej) => {
       const img = new Image(); img.onerror = () => rej(new Error("That file isn't a picture."));
@@ -168,7 +197,7 @@ window.TSA = (() => {
       <h2 class="lv-q" data-l="q"></h2><div class="lv-sub" data-l="sub"></div>
       <div class="lv-viz" data-l="viz"></div>
       <div class="lv-faces" data-l="faces" aria-hidden="true"></div>
-      <div class="lv-bar"><button class="key" type="button" data-l="prev" aria-label="Previous question">◀ Q</button><button class="key next" type="button" data-l="main"></button><button class="key" type="button" data-l="nextq" aria-label="Next question">Q ▶</button>${boardOK ? `<button class="key" type="button" data-l="board">Leaderboard</button>` : ""}<span class="st-mono">Space: next step</span></div>
+      <div class="lv-bar"><button class="key" type="button" data-l="prev" aria-label="Previous question">◀ Q</button><button class="key next" type="button" data-l="main"></button><button class="key" type="button" data-l="nextq" aria-label="Next question">Q ▶</button>${boardOK ? `<button class="key" type="button" data-l="board">Leaderboard</button>` : ""}${o.ai && (kind === "case" || kind === "exit") ? `<button class="key ai" type="button" data-l="ai">✨ ${kind === "case" ? "AI review and feedback" : "AI summary"}</button>` : ""}<span class="st-mono">Space: next step</span></div>
       <div class="lv-over" data-l="over" hidden></div></div>`;
     const $l = n => el.querySelector(`[data-l="${n}"]`);
     const stepNow = () => steps[L.step];
@@ -332,13 +361,28 @@ window.TSA = (() => {
     $l("prev").addEventListener("click", () => goStep(L.step - 1));
     $l("nextq").addEventListener("click", () => goStep(L.step + 1));
     $l("board")?.addEventListener("click", () => (L.overlay ? closeOverlay() : showBoard(false)));
+    $l("ai")?.addEventListener("click", async () => {
+      const b = $l("ai"); if (!L.rows.length) { $l("sub").textContent = "No answers to review yet."; return; }
+      b.disabled = true; const was = b.textContent; b.textContent = "✨ Reading the answers…";
+      const res = await o.ai({ task: kind === "case" ? "case_review" : "exit_summary", activity_id: act.id, run: o.run, step: L.step });
+      b.disabled = false; b.textContent = was;
+      if (!res || res.error) { $l("sub").textContent = (res && res.error) || "The AI request failed. Try again."; return; }
+      if (res.sent) o.channel?.send({ type: "broadcast", event: "feedback", payload: { n: res.sent } });
+      const tmax = Math.max(1, ...(res.themes || []).map(t => +t.count || 1));
+      overlay(`<div class="aibox"><span class="eyebrow ai">✨ ${kind === "case" ? "AI review" : "AI summary"}</span><p class="ais">${esc(res.summary)}</p>
+        ${(res.themes || []).length ? `<div class="aithemes">${res.themes.slice(0, 8).map(t => `<span style="font-size:${Math.round(15 + 9 * (+t.count || 1) / tmax)}px">${esc(t.theme)} <i>${+t.count || ""}</i></span>`).join("")}</div>` : ""}
+        ${res.model ? `<div class="aimodel"><b>A strong answer</b><p>${esc(res.model)}</p></div>` : ""}
+        ${(res.best || []).length ? `<div class="aibest">${res.best.map(x => `<div><p>“${esc(String(x.text || "").slice(0, 280))}”</p><small>${esc(x.name || "")}</small></div>`).join("")}</div>` : ""}
+        ${res.sent ? `<p class="aisent">Personal feedback sent to ${res.sent} phone${res.sent === 1 ? "" : "s"} ✓</p>` : ""}</div>`);
+    });
     goStep(0);
     return {
       main, onAnswered,
       async destroy() {
         L.dead = true; clearInterval(poll); clearInterval(timer);
-        await o.sb.rpc("set_live", { p_session: o.session.id, p_activity: null, p_run: "", p_step: 0, p_phase: "idle", p_seconds: 0 });
-        o.channel?.send({ type: "broadcast", event: "live", payload: { phase: "idle" } });
+        const done = o.sb.rpc("set_live", { p_session: o.session.id, p_activity: null, p_run: "", p_step: 0, p_phase: "idle", p_seconds: 0 });
+        try { o.channel?.send({ type: "broadcast", event: "live", payload: { phase: "idle" } }); } catch {}
+        await done;
       }
     };
   }
