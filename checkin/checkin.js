@@ -110,8 +110,8 @@
     done(data);
   });
   function done(d) {
-    me = { token: d.token, title: d.title, name: d.name, organisation: d.organisation, photo: d.photo, arrived_at: d.arrived_at };
-    store.set("ts_me_" + sess.pkey, { token: d.token, title: d.title, name: d.name, organisation: d.organisation, photo: d.photo });
+    me = { token: d.token, participant: d.participant, title: d.title, name: d.name, organisation: d.organisation, photo: d.photo, arrived_at: d.arrived_at };
+    store.set("ts_me_" + sess.pkey, { token: d.token, participant: d.participant, title: d.title, name: d.name, organisation: d.organisation, photo: d.photo });
     store.set("ts_in_" + code, { arrived_at: d.arrived_at });
     buzz([30, 40, 60]);
     openRoom(true);
@@ -131,6 +131,13 @@
     channel.on("broadcast", { event: "live" }, () => refreshLive());
     channel.on("broadcast", { event: "ended" }, () => sessionEnded());
     channel.on("broadcast", { event: "feedback" }, () => loadFeedback(true));
+    channel.on("broadcast", { event: "picked" }, ({ payload }) => {
+      if (!payload || !(me.participant ? payload.participant === me.participant : payload.name === me.name)) return;
+      $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">Spin the wheel</span><b style="font-family:var(--display);font-size:34px;line-height:1.05">🎯 You've been picked!</b><p class="muted">Over to you, ${esc(String(me.name || "").split(" ")[0])}.</p><button class="btn red" type="button" id="flyOk">OK</button>`;
+      $("fly").hidden = false; buzz([80, 60, 80, 60, 200]);
+      $("flyOk").onclick = () => ($("fly").hidden = true);
+      clearTimeout(fly.t); fly.t = setTimeout(() => ($("fly").hidden = true), 15000);
+    });
     channel.on("broadcast", { event: "winner" }, ({ payload }) => { if (payload?.name) $("nowTxt").textContent = payload.name + " caught it first!"; });
     channel.on("broadcast", { event: "now" }, ({ payload }) => { $("nowTxt").textContent = payload?.label || "The session is on"; });
     channel.on("broadcast", { event: "share" }, async ({ payload }) => {
@@ -174,7 +181,7 @@
 
   // ---------- live activities ----------
   const LET = "ABCDEF", COL = ["#F4B400", "#3FB98A", "#5AA9E6", "#F2786F", "#B48EF0", "#F0A35E"];
-  const NAMES = { poll: "Live poll", words: "Word cloud", quiz: "Quiz", buzz: "First to catch", battle: "Group battle", order: "Order it", match: "Match it", spot: "Spot the error", case: "Case study", exit: "Exit ticket", test: "Test" };
+  const NAMES = { poll: "Live poll", words: "Word cloud", quiz: "Quiz", buzz: "First to catch", battle: "Group battle", order: "Order it", match: "Match it", spot: "Spot the error", case: "Case study", exit: "Exit ticket", test: "Test", finger: "Finger vote" };
   let cur = null, lastKey = "", draft = null, deadline = 0, sending = false, lastRun = "";
   async function refreshLive(force) {
     if (!me) return;
@@ -217,6 +224,7 @@
   }, 250);
   function answerUi(c, q) {
     const k = c.kind;
+    if (k === "finger") return `<p class="res">✋ Raise your hand</p><p class="muted">Hold your hand up high, facing the screen, with:</p><div class="ord">${(q.options || []).map((o, i) => `<div style="grid-template-columns:44px 1fr"><b style="font-size:22px;color:var(--ink)">${i + 1}</b><span>${i + 1} finger${i ? "s" : ""} = ${esc(o)}</span></div>`).join("")}</div>`;
     if (q.options) return `<div class="ch">${q.options.map((o, i) => `<button type="button" data-i="${i}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>
       ${c.teams && group === "all" ? `<p class="small muted">Pick Group A or Group B below so your points count for your group.</p>` : ""}`;
     if (k === "words") return `${Array.from({ length: q.max || 1 }, (_, i) => `<input class="wi" maxlength="40" data-w="${i}" placeholder="${(q.max || 1) > 1 ? "Answer " + (i + 1) : "One or two words"}" autocomplete="off">`).join("")}<button class="btn red" type="button" id="aSend">Send</button>`;

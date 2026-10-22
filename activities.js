@@ -16,6 +16,7 @@ window.TSA = (() => {
     spot:   { name: "Spot the error",  line: "Participants tap the mistake on a picture.", scored: true, sec: 45, color: "#F4B400" },
     case:   { name: "Case study race", line: "Groups answer a case; the first group to answer is shown.", sec: 300, teams: true, text: true, color: "#14161C" },
     exit:   { name: "Exit ticket",     line: "“One thing I'll apply at my desk.”", sec: 0, text: true, color: "#D2391F" },
+    finger: { name: "Finger vote",     line: "Everyone raises 1 to 5 fingers; the webcam counts the room.", opts: true, maxOpts: 5, sec: 0, color: "#D2391F" },
     test:   { name: "Pre & post test", line: "The same questions at the start and the end. Each person sees their learning achievement.", opts: true, scored: true, sec: 30, color: "#D2391F", noboard: true }
   };
   const PROMPTY = k => ["case", "exit", "words"].includes(k);
@@ -41,6 +42,7 @@ window.TSA = (() => {
         const kept = []; let correct = -1;
         s.options.forEach((o, j) => { o = String(o || "").trim(); if (o) { if (j === s.correct) correct = kept.length; kept.push(o); } });
         if (kept.length < 2) return [null, "Give at least two options" + at + "."];
+        if (k.maxOpts && kept.length > k.maxOpts) return [null, `Use at most ${k.maxOpts} options` + at + "."];
         s.options = kept;
         if (k.scored) { if (correct < 0) return [null, "Tick the correct answer" + at + "."]; s.correct = correct; } else delete s.correct;
       }
@@ -76,10 +78,10 @@ window.TSA = (() => {
       if (k.opts) {
         body += `<div class="opts">${s.options.map((op, j) => `<div class="optrow">
           ${k.scored ? `<input type="radio" name="c${i}" data-f="correct" data-i="${i}" value="${j}" ${s.correct === j ? "checked" : ""} aria-label="Correct answer ${LETTERS[j]}">` : "<span></span>"}
-          <span class="let" style="background:${COLORS[j]}">${LETTERS[j]}</span>
+          <span class="let" style="background:${COLORS[j]}">${kind === "finger" ? j + 1 : LETTERS[j]}</span>
           <input data-f="opt" data-i="${i}" data-o="${j}" value="${esc(op)}" placeholder="Option ${LETTERS[j]}" aria-label="Option ${LETTERS[j]}">
           <button class="x" data-a="delopt" data-i="${i}" data-o="${j}" type="button" aria-label="Remove option" ${s.options.length <= 2 ? "hidden" : ""}>×</button></div>`).join("")}</div>
-          <div class="row">${s.options.length < 6 ? `<button class="btn ghost small" data-a="addopt" data-i="${i}" type="button">+ Option</button>` : ""}<span class="small muted">${k.scored ? "Tick the correct answer." : ""}</span></div>`;
+          <div class="row">${s.options.length < (k.maxOpts || 6) ? `<button class="btn ghost small" data-a="addopt" data-i="${i}" type="button">+ Option</button>` : ""}<span class="small muted">${k.scored ? "Tick the correct answer." : kind === "finger" ? "Participants raise 1 finger for option 1, 2 fingers for option 2, and so on (up to 5)." : ""}</span></div>`;
       } else if (kind === "words") {
         body += `<label class="fld" style="max-width:220px">Answers per person<select data-f="max" data-i="${i}">${[1, 2, 3].map(n => `<option ${s.max === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>`;
       } else if (kind === "order") {
@@ -212,8 +214,31 @@ window.TSA = (() => {
     }
     async function goStep(i) {
       if (i < 0 || i >= steps.length) return;
-      L.step = i; L.rows = []; L.winner = null; closeOverlay();
-      await setPhase("open"); fetchRows();
+      L.step = i; L.rows = []; L.winner = null; L.fcounts = null; L.locked = null; L.hands = 0; closeOverlay();
+      if (isF) { if (fcam) { fcam.stop(); fcam = null; } $l("viz").innerHTML = ""; }
+      await setPhase("open");
+      if (isF) startF();
+      fetchRows();
+    }
+    // finger vote: the webcam counts; "Lock the count" saves it
+    const isF = kind === "finger";
+    let fcam = null;
+    function startF() {
+      if (fcam || !o.fingers) return;
+      o.onCamera?.(true);
+      setTimeout(() => {
+        if (fcam) return;
+        if (L.dead || !$l("viz").querySelector("video")) return;
+        fcam = o.fingers({ video: $l("viz").querySelector("video"), canvas: $l("viz").querySelector("canvas"), options: () => (stepNow().options || []).length, colors: COLORS,
+          onCounts: (c, hands) => { if (L.locked) return; L.fcounts = c; L.hands = hands; render(); },
+          onMsg: t => { const m = $l("viz").querySelector(".fmsg"); if (m) m.textContent = t; } });
+      }, 60);
+    }
+    function stopF() { if (fcam) { fcam.stop(); fcam = null; } o.onCamera?.(false); }
+    async function lockF() {
+      L.locked = (L.fcounts || Array((stepNow().options || []).length).fill(0)).slice();
+      await o.sb.rpc("save_tally", { p_activity: act.id, p_run: o.run, p_step: L.step, p_counts: L.locked });
+      await setPhase("reveal");
     }
     let fetching = false, again = false;
     async function fetchRows() {
@@ -245,6 +270,7 @@ window.TSA = (() => {
     function mainLabel() {
       if (L.overlay) return "Continue";
       if (noReveal) return L.step < steps.length - 1 ? "Next question ▶" : "Finish the pre-test ✓";
+      if (isF && (L.phase === "open" || L.phase === "closed")) return "🔒 Lock the count";
       if (L.phase === "open" || L.phase === "closed") return K.scored ? "Reveal answer" : "Show results";
       if (L.step < steps.length - 1) return "Next question ▶";
       return boardOK ? "Final leaderboard" : "Done ✓";
@@ -252,8 +278,10 @@ window.TSA = (() => {
     function main() {
       if (L.overlay) { closeOverlay(); if (L.after) { const f = L.after; L.after = null; f(); } return; }
       if (noReveal) { if (L.step < steps.length - 1) return goStep(L.step + 1); return setPhase("closed").then(() => o.onDone && o.onDone()); }
+      if (isF && (L.phase === "open" || L.phase === "closed")) return lockF();
       if (L.phase === "open" || L.phase === "closed") return setPhase("reveal").then(fetchRows);
       if (L.step < steps.length - 1) return goStep(L.step + 1);
+      if (isF) stopF();
       if (boardOK) { showBoard(true); return; }
       o.onDone && o.onDone();
     }
@@ -264,13 +292,14 @@ window.TSA = (() => {
       $l("q").textContent = s.q; $l("sub").textContent = "";
       const phones = o.phones ? o.phones() : 0;
       $l("count").textContent = L.rows.length; $l("countLbl").textContent = phones ? `of ${phones} answered` : "answered";
+      if (isF) { const c = L.locked || L.fcounts || []; $l("count").textContent = c.reduce((a, b) => a + b, 0); $l("countLbl").textContent = L.locked ? "hands counted · locked" : "hands counted"; }
       $l("main").textContent = mainLabel();
       $l("prev").disabled = L.step === 0; $l("nextq").disabled = L.step >= steps.length - 1;
       if (!$l("tug").hidden) {
         const t = { A: 0, B: 0 }; L.all.forEach(r => { if (r.grp === "A" || r.grp === "B") t[r.grp] += r.points || 0; });
         $l("tA").textContent = t.A; $l("tB").textContent = t.B; $l("tBar").style.width = (t.A + t.B ? 15 + 70 * t.A / (t.A + t.B) : 50) + "%";
       }
-      const showFaces = !rev && !["words", "poll", "exit"].includes(kind);
+      const showFaces = !rev && !["words", "poll", "exit", "finger"].includes(kind);
       $l("faces").innerHTML = showFaces ? L.rows.slice(-60).map(r => `<span class="fc ${r.grp}">${r.photo ? `<img src="${esc(r.photo)}" alt="">` : esc(initials(r.name))}</span>`).join("") : "";
       (VIZ[kind] || VIZ.text)($l("viz"), s, L.rows, rev);
     }
@@ -335,6 +364,13 @@ window.TSA = (() => {
         v.innerHTML = html;
       }
     };
+    VIZ.finger = (v, s, rows, rev) => {
+      if (!v.querySelector(".lv-finger")) v.innerHTML = `<div class="lv-finger"><div class="fcam"><video playsinline muted></video><canvas></canvas><span class="fmsg">Starting camera…</span>${L.locked ? "" : ""}</div><div class="fbars"></div></div>`;
+      $l("sub").innerHTML = (s.options || []).map((op, j) => `<span class="fhint"><b style="color:${COLORS[j]}">✋ ${j + 1}</b> ${esc(op)}</span>`).join("");
+      const c = L.locked || L.fcounts || Array((s.options || []).length).fill(0), max = Math.max(1, ...c), tot = c.reduce((a, b) => a + b, 0);
+      v.querySelector(".fbars").innerHTML = (s.options || []).map((op, j) => `<div class="lv-row"><span class="let" style="background:${COLORS[j]}">${j + 1}</span><span class="tr"><span class="fill" style="width:${c[j] / max * 100}%;background:${COLORS[j]}"></span><span class="lab">${esc(op)}</span></span><span class="num">${c[j]}<small>${tot ? " · " + Math.round(c[j] / tot * 100) + "%" : ""}</small></span></div>`).join("");
+      v.querySelector(".fcam").classList.toggle("locked", !!L.locked);
+    };
     VIZ.battle = VIZ.quiz; VIZ.test = VIZ.quiz; VIZ.exit = VIZ.text; VIZ.case = VIZ.text;
     function totals() {
       const m = new Map();
@@ -377,9 +413,9 @@ window.TSA = (() => {
     });
     goStep(0);
     return {
-      main, onAnswered,
+      main, onAnswered, label: () => mainLabel(),
       async destroy() {
-        L.dead = true; clearInterval(poll); clearInterval(timer);
+        L.dead = true; clearInterval(poll); clearInterval(timer); if (isF) stopF();
         const done = o.sb.rpc("set_live", { p_session: o.session.id, p_activity: null, p_run: "", p_step: 0, p_phase: "idle", p_seconds: 0 });
         try { o.channel?.send({ type: "broadcast", event: "live", payload: { phase: "idle" } }); } catch {}
         await done;

@@ -34,6 +34,7 @@ const SHAPES: Record<string, string> = {
   battle: '{"q":"question","options":["A","B","C","D"],"correct":0}',
   test: '{"q":"question","options":["A","B","C","D"],"correct":0}  (a fair test of the learning objectives)',
   poll: '{"q":"question","options":["A","B","C"]}  (opinion poll, no right answer)',
+  finger: '{"q":"question","options":["A","B","C"]}  (2 to 5 short options; people answer by raising that many fingers)',
   words: '{"q":"prompt for one or two words","max":1}',
   order: '{"q":"Put these in the right order","items":["first step","second step","third step","fourth step"]}  (items in the CORRECT order, 3 to 7)',
   match: '{"q":"Match each term to its meaning","pairs":[{"l":"term","r":"meaning"}]}  (3 to 6 pairs, every meaning different)',

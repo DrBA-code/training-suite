@@ -124,10 +124,17 @@
   <div class="st-strip" id="stStrip"></div>
   <div class="st-dock" id="stDock">
     <div class="row" style="gap:6px"><button class="key" type="button" id="stPrev" aria-label="Previous">◀</button><button class="key next" type="button" id="stNext">Next ▶</button></div>
-    <div class="row" style="gap:6px"><button class="key" type="button" id="stShareBtn">Share file</button><button class="key" type="button" id="stShareSlide" hidden>Share this slide</button><button class="key" type="button" id="stFs">Full screen</button><button class="key" type="button" id="stExit">Exit</button></div>
+    <div class="row" style="gap:6px"><button class="key spin" type="button" id="stWheelBtn" title="Spin the wheel (W)">🎯 Spin</button><button class="key" type="button" id="stGest" aria-pressed="false" title="Hand gestures (G)">✋ Gestures</button><button class="key" type="button" id="stRemoteBtn" title="Control from your phone">📱 Remote</button><button class="key" type="button" id="stShareBtn">Share file</button><button class="key" type="button" id="stShareSlide" hidden>Share this slide</button><button class="key" type="button" id="stFs">Full screen</button><button class="key" type="button" id="stExit">Exit</button></div>
   </div>
   <div class="st-share" id="stShare" hidden></div>
   <div class="st-arrive" id="stArrive" hidden></div>
+  <div class="st-wheel" id="stWheel" hidden></div>
+  <div class="st-blank" id="stBlank" hidden><div>Eyes up front</div></div>
+  <div class="st-remote" id="stRemote" hidden></div>
+  <div class="st-cam" id="stCam" hidden><video id="gVideo" playsinline muted></video><canvas id="gOverlay"></canvas><span class="lbl" id="gLbl">Starting camera…</span></div>
+  <div class="gnote" id="gNote" hidden></div>
+  <div class="st-flash" id="stFlash" aria-hidden="true"></div>
+  <div class="st-grab" id="stGrab" hidden></div>
 </section>
 
 <div class="toast" id="toast" role="status" hidden></div>
@@ -136,6 +143,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script src="activities.js"></script>
+<script src="gestures.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

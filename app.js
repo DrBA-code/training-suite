@@ -12,7 +12,7 @@
   // Activity catalogue (shared with later phases).
   const ENG = [
     ["throw", "Throw and catch", "Grab a slide or file and throw it to phones", "#F4B400"],
-    ["wheel", "Spin the wheel", "Pick who answers next", "#14161C"],
+    ["wheel", "Spin the wheel", "Always on the live screen: pick who answers next", "#14161C"],
     ["finger", "Finger vote", "The webcam counts raised fingers", "#D2391F"],
     ["words", "Word cloud", "Short answers grow on screen", "#2747C8"],
     ["poll", "Live poll", "Bars grow as votes come in", "#F4B400"]
@@ -28,9 +28,9 @@
     ["exit", "Exit ticket", "One thing I'll apply at my desk", "#D2391F"]
   ];
   const TOOL = Object.fromEntries([...ENG, ...ASS].map(([id, name, line, color]) => [id, { id, name, line, color }]));
-  const PLACEABLE = id => id !== "exit" && id !== "throw";   // throw is available all the time; exit ticket goes at the end
+  const PLACEABLE = id => id !== "exit" && id !== "throw" && id !== "wheel";   // throw and the wheel are always on the live screen; exit ticket goes at the end
   // Tools that need questions written (activities.js); "test" is the pre/post test.
-  const SLOTS = ["poll", "words", "quiz", "buzz", "battle", "order", "match", "spot", "case", "exit"];
+  const SLOTS = ["poll", "words", "finger", "quiz", "buzz", "battle", "order", "match", "spot", "case", "exit"];
   const slotsOf = s => [...(s.pre_test || s.post_test ? ["test"] : []), ...SLOTS.filter(t => (s.tools || []).includes(t))];
   const acts = {};   // session id → activities
   async function loadActs(sid, fresh) {
@@ -534,7 +534,7 @@
     const out = [["Check-in", "Welcome screen on the projector, QR code at the door"]];
     if (s.pre_test) out.push(["Pre-test", "Where everyone starts"]);
     out.push(["Train", sc ? `Your slides · ${sc} slides` : (s.files || []).some(f => f.kind === "slides") ? "Your slides" : "No slides uploaded yet"]);
-    (s.flow || []).forEach(f => TOOL[f.tool] && out.push([TOOL[f.tool].name, f.after ? `After slide ${f.after}` : "At the start of training"]));
+    (s.flow || []).forEach(f => TOOL[f.tool] && PLACEABLE(f.tool) && out.push([TOOL[f.tool].name, f.after ? `After slide ${f.after}` : "At the start of training"]));
     if ((s.tools || []).includes("exit")) out.push(["Exit ticket", "One thing I'll apply at my desk"]);
     if (s.post_test) out.push(["Post-test", "Same questions, shuffled"]);
     if ((s.evaluation || {}).mode !== "none") out.push(["Evaluation", "Default form" + ((s.evaluation || {}).anonymous ? " · anonymous" : "")]);
@@ -892,7 +892,7 @@
   function buildFlow(s) {
     const it = [{ t: "welcome", label: "Check-in and welcome" }];
     if (s.pre_test) it.push({ t: "card", key: "pretest", label: "Pre-test" });
-    const sc = s.slide_count || 0, flow = [...(s.flow || [])].filter(f => TOOL[f.tool]).sort((a, b) => a.after - b.after);
+    const sc = s.slide_count || 0, flow = [...(s.flow || [])].filter(f => TOOL[f.tool] && PLACEABLE(f.tool)).sort((a, b) => a.after - b.after);
     const act = f => ({ t: "tool", tool: f.tool, label: TOOL[f.tool].name });
     flow.filter(f => f.after <= 0).forEach(f => it.push(act(f)));
     if (!sc) { it.push({ t: "card", key: "train", label: "Training" }); flow.filter(f => f.after > 0).forEach(f => it.push(act(f))); }
@@ -925,17 +925,21 @@
     P.channel.on("broadcast", { event: "answered" }, () => P?.run?.onAnswered());
     P.channel.subscribe(st => { if (st === "SUBSCRIBED") sayNow(); });
     P.nowTimer = setInterval(sayNow, 10000);
+    P.remoteTimer = setInterval(() => remoteState(), 3000);
+    setupRemote();
     P.rollTimer = setInterval(() => refreshRoll(true), 8000);
     P.acts = (await loadActs(s.id, true)) || [];
     await refreshRoll(false);
     goItem(0);
+    if (gestPref()) gestures(true);
     poke();
   }
   function stopRun() { if (P?.run) { P.run.destroy(); P.run = null; } }
   function stopPresent() {
     if (!P) return;
-    stopRun();
-    clearInterval(P.nowTimer); clearInterval(P.rollTimer);
+    stopRun(); closeWheel(); window.TSG?.stop(); $("stCam").hidden = true; $("stGest").setAttribute("aria-pressed", "false"); $("stBlank").hidden = true; $("stRemote").hidden = true;
+    if (P.remote) sb.removeChannel ? sb.removeChannel(P.remote) : P.remote.unsubscribe?.();
+    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer);
     if (P.channel) sb.removeChannel ? sb.removeChannel(P.channel) : P.channel.unsubscribe?.();
     P = null;
   }
@@ -976,6 +980,7 @@
   function goItem(n) {
     if (!P) return;
     const to = Math.max(0, Math.min(P.items.length - 1, n));
+    window.TSG?.resetZoom();
     if (to !== P.i || !P.run) stopRun();
     P.i = to;
     const it = P.items[P.i];
@@ -985,7 +990,7 @@
     $("stShareSlide").hidden = it.t !== "slide";
     document.querySelectorAll("#stStrip [data-go]").forEach(b => { b.classList.toggle("on", +b.dataset.go === P.i); });
     document.querySelector("#stStrip .on")?.scrollIntoView({ block: "nearest", inline: "center" });
-    draw(); sayNow();
+    draw(); sayNow(); remoteState();
   }
   function draw() {
     const it = P.items[P.i], m = $("stMain");
@@ -1027,7 +1032,7 @@
     const run = slot === "test" ? (it.key === "pretest" ? "pre" : "post") : "r" + Date.now().toString(36);
     const m = $("stMain"); m.innerHTML = `<div class="lvwrap"></div>`;
     const at = P.i;
-    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0, ai: aiCall,
+    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0, ai: aiCall, fingers: f => window.TSG.fingers(f), onCamera: on => { if (window.TSG.on || P?.gestPaused) { P.gestPaused = on; window.TSG.pause(on); } },
       onDone: () => { if (P && P.i === at) { if (P.i < P.items.length - 1) goItem(P.i + 1); else { stopRun(); draw(); } } } });
   }
   function drawWelcome() {
@@ -1097,20 +1102,144 @@
     if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to finish the session"; setTimeout(() => { if (P) { b.dataset.sure = ""; goItem(P.i); } }, 4000); return; }
     const s = P.s; exitPresent("#/session/" + s.id); endSession(s);
   }
+  // ---------- Spin the wheel (always on) ----------
+  const WCOL = ["#D2391F", "#F4B400", "#2747C8", "#14161C", "#3FB98A", "#B48EF0"];
+  const pickedKey = () => "ts_picked_" + (P?.s.id || "");
+  const getPicked = () => { try { return new Set(JSON.parse(sessionStorage.getItem(pickedKey()) || "[]")); } catch { return new Set(); } };
+  const setPicked = set => { try { sessionStorage.setItem(pickedKey(), JSON.stringify([...set])); } catch {} };
+  let wheelSkip = true;
+  function openWheel() {
+    if (!P) return;
+    const box = $("stWheel"), here = P.roll.filter(r => !r.left_at), picked = getPicked();
+    const pool = wheelSkip ? here.filter(r => !picked.has(r.participant)) : here;
+    box.hidden = false; setTimeout(remoteState, 0);
+    if (!here.length) { box.innerHTML = `<div class="wcard"><h2>No one is checked in yet</h2><p>People appear on the wheel once they check in.</p><button class="key next" type="button" data-wx>Close</button></div>`; box.querySelector("[data-wx]").onclick = closeWheel; return; }
+    if (!pool.length) { box.innerHTML = `<div class="wcard"><h2>Everyone has had a turn</h2><p>Start again with the whole room?</p><div class="row" style="justify-content:center"><button class="key next" type="button" data-wreset>Start again</button><button class="key" type="button" data-wx>Close</button></div></div>`; box.querySelector("[data-wreset]").onclick = () => { setPicked(new Set()); openWheel(); }; box.querySelector("[data-wx]").onclick = closeWheel; return; }
+    const n = pool.length, seg = 360 / n;
+    const label = r => { const nm = String(r.name || "").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, ""); return n > 24 ? nm.split(" ")[0] : nm.length > 18 ? nm.split(" ")[0] : nm; };
+    const svg = `<svg viewBox="-110 -110 220 220" class="wsvg" id="wSvg">${pool.map((r, i) => {
+      const a0 = (i * seg - 90) * Math.PI / 180, a1 = ((i + 1) * seg - 90) * Math.PI / 180, large = seg > 180 ? 1 : 0;
+      const path = n === 1 ? `<circle r="100" fill="${WCOL[0]}"/>` : `<path d="M0 0 L${100 * Math.cos(a0)} ${100 * Math.sin(a0)} A100 100 0 ${large} 1 ${100 * Math.cos(a1)} ${100 * Math.sin(a1)} Z" fill="${WCOL[i % WCOL.length]}"/>`;
+      const mid = (i + 0.5) * seg - 90, fs = Math.max(4, Math.min(9, 150 / n));
+      return path + `<text transform="rotate(${mid}) translate(94 0)" text-anchor="end" dominant-baseline="middle" font-size="${fs}" fill="${i % WCOL.length === 1 ? "#14161C" : "#fff"}">${esc(label(r))}</text>`;
+    }).join("")}<circle r="14" fill="#fff"/><circle r="6" fill="#14161C"/></svg>`;
+    box.innerHTML = `<div class="wwrap"><div class="wpin" aria-hidden="true"></div>${svg}</div>
+      <div class="wside"><span class="st-hello">Spin the wheel</span><h2>${n} ${n === 1 ? "person" : "people"} on the wheel</h2>
+        <label class="wskip"><input type="checkbox" id="wSkip" ${wheelSkip ? "checked" : ""}> Leave out people already picked (${picked.size})</label>
+        <div class="row"><button class="key next big" type="button" id="wGo">Spin ↻</button><button class="key" type="button" data-wx>Close</button></div>
+        <div id="wWin" class="wwin" aria-live="polite"></div></div>`;
+    box.querySelector("[data-wx]").onclick = closeWheel;
+    $("wSkip").onchange = e => { wheelSkip = e.target.checked; openWheel(); };
+    let rot = 0, busy = false, spun = false;
+    $("wGo").onclick = () => {
+      if (busy) return;
+      if (spun && wheelSkip) { openWheel(); setTimeout(() => $("wGo")?.click(), 60); return; }   // take the last person off, then spin
+      busy = true; $("wWin").innerHTML = "";
+      const k = Math.floor(Math.random() * n), win = pool[k];
+      const target = 360 - ((k + 0.5) * seg) + (Math.random() - 0.5) * seg * 0.6;   // the chosen slice stops under the pin (top)
+      rot = rot - (rot % 360) + 360 * 6 + target;
+      const el = $("wSvg"); el.style.transition = matchMedia("(prefers-reduced-motion: reduce)").matches ? "none" : "transform 5.2s cubic-bezier(.12,.75,.12,1)";
+      el.style.transform = `rotate(${rot}deg)`;
+      setTimeout(() => {
+        busy = false; spun = true;
+        if (!$("wWin") || !$("wSvg") || $("wSvg") !== el) return;   // closed while spinning
+        const set = getPicked(); set.add(win.participant); setPicked(set);
+        $("wWin").innerHTML = `<div class="wface">${win.photo ? `<img src="${esc(win.photo)}" alt="">` : `<span>${esc((win.name || "?")[0])}</span>`}</div><b>${esc(pName(win))}</b><small>${esc(win.organisation || "")}</small>`;
+        P.channel?.send({ type: "broadcast", event: "picked", payload: { participant: win.participant, name: win.name } });
+        $("wGo").textContent = "Spin again ↻";
+      }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 50 : 5300);
+    };
+  }
+  function closeWheel() { $("stWheel").hidden = true; $("stWheel").innerHTML = ""; remoteState(); }
+  $("stWheelBtn").addEventListener("click", () => ($("stWheel").hidden ? openWheel() : closeWheel()));
+
+  // ---------- phone remote: a private key per live screen; the phone sends commands, we send back what's on screen ----------
+  const remoteLink = key => new URL("remote/", location.href.split("#")[0]).href + "#" + key;
+  function setupRemote() {
+    const k = "ts_remote_" + P.s.id;
+    let key = null; try { key = sessionStorage.getItem(k); } catch {}
+    if (!key) { const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789", r = crypto.getRandomValues(new Uint8Array(10)); key = [...r].map(x => A[x % A.length]).join(""); try { sessionStorage.setItem(k, key); } catch {} }
+    P.remoteKey = key;
+    P.remote = sb.channel("ts-remote-" + key, { config: { broadcast: { self: false } } });
+    P.remote.on("broadcast", { event: "cmd" }, ({ payload }) => { const c = payload?.cmd; if (["next", "prev", "step", "spin", "blank", "close"].includes(c)) { cmd(c); poke(); } else remoteState(); P.remoteSeen = true; if (!$("stRemote").hidden) drawRemote(); });
+    P.remote.subscribe(st => { if (st === "SUBSCRIBED") remoteState(); });
+  }
+  function remoteState() {
+    if (!P?.remote) return;
+    const it = P.items[P.i] || {}, wheel = !$("stWheel").hidden;
+    const step = wheel ? "Spin" : P.run ? (P.run.label?.() || "Next step") : $("stStart") ? "Start activity" : "Next";
+    P.remote.send({ type: "broadcast", event: "state", payload: { label: it.t === "welcome" ? "Check-in and welcome" : it.label, pos: P.i + 1, total: P.items.length, blank: !!P.blank, wheel, step, topic: P.s.topic } });
+  }
+  function drawRemote() {
+    const link = remoteLink(P.remoteKey);
+    $("stRemote").innerHTML = `<div class="row" style="justify-content:space-between"><b style="font-family:var(--display);font-size:18px">Control from your phone</b><button type="button" class="x" data-rx aria-label="Close">×</button></div>
+      <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:nowrap"><div class="qr" style="width:150px;height:150px">${qrSvg(link)}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="small">Scan with <b>your</b> phone. Keep this code private: anyone with it can move your slides.</span><span class="code" style="font-size:20px">${esc(P.remoteKey)}</span><span class="small" style="word-break:break-all;color:var(--muted)">${esc(link)}</span>${P.remoteSeen ? `<span class="ok">Phone connected ✓</span>` : ""}</div></div>`;
+    $("stRemote").querySelector("[data-rx]").onclick = () => ($("stRemote").hidden = true);
+  }
+  $("stRemoteBtn").addEventListener("click", () => { if (!P) return; if ($("stRemote").hidden) { drawRemote(); $("stRemote").hidden = false; } else $("stRemote").hidden = true; });
+
+  // ---------- hand gestures (gestures.js) ----------
+  const gestPref = () => { try { return localStorage.getItem("ts_gest") === "1"; } catch { return false; } };
+  function stFlash(t) { const f = $("stFlash"); f.textContent = t; f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
+  async function gestures(on) {
+    try { localStorage.setItem("ts_gest", on ? "1" : ""); } catch {}
+    $("stGest").setAttribute("aria-pressed", on); $("stCam").hidden = !on;
+    if (!on) { window.TSG.stop(); $("stGrab").hidden = true; return; }
+    $("gNote").hidden = true;
+    await window.TSG.start({
+      video: $("gVideo"), canvas: $("gOverlay"),
+      label: t => ($("gLbl").textContent = t),
+      note: t => { $("gNote").textContent = t; $("gNote").hidden = !t; },
+      onCmd: c => { if (!P) return; stFlash(c === "next" ? "▶" : "◀"); cmd(c === "next" && P.run ? "step" : c); },
+      zoomable: () => P && P.items[P.i]?.t === "slide" && !P.blank,
+      slideEl: () => $("stCanvas"),
+      canThrow: () => P && P.items[P.i]?.t === "slide" && !!P.pdf,
+      onGrab: g => { $("stGrab").hidden = !g; $("stGrab").textContent = "✊ Grabbed: open your hand towards the room to throw"; $("stMain").classList.toggle("grabbed", g); },
+      onThrow: async target => {
+        const m = $("stMain"); m.classList.remove("tossed"); void m.offsetWidth; m.classList.add("tossed"); setTimeout(() => m.classList.remove("tossed"), 900);
+        try { await shareSlide(target); stFlash(`Thrown to ${target === "all" ? "everyone" : "Group " + target} ✓`); }
+        catch (e) { stFlash("Couldn't throw"); toast(errText(e, "Couldn't share the slide.")); }
+      },
+      flash: stFlash
+    });
+  }
+  $("stGest").addEventListener("click", () => gestures($("stGest").getAttribute("aria-pressed") !== "true"));
+
+  // ---------- blank screen (B, or the phone remote) ----------
+  function setBlank(on) { if (!P) return; P.blank = on; $("stBlank").hidden = !on; remoteState(); }
+
   $("stPrev").addEventListener("click", () => P && goItem(P.i - 1));
   $("stNext").addEventListener("click", () => { if (!P) return; if (P.i >= P.items.length - 1) finishSession(); else goItem(P.i + 1); });
   $("stShareBtn").addEventListener("click", () => P && openShare());
   $("stShareSlide").addEventListener("click", () => { if (!P) return; openShare(); });
   $("stFs").addEventListener("click", () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else $("stage").requestFullscreen?.().catch(() => {}); });
   $("stExit").addEventListener("click", () => exitPresent());
+  // One set of commands for the keyboard, hand gestures and the phone remote.
+  function cmd(c) {
+    if (!P) return;
+    if (P.blank && c !== "blank") { setBlank(false); return; }
+    if (c === "spin") { if ($("stWheel").hidden) openWheel(); else $("wGo")?.click(); }
+    else if (c === "blank") setBlank(!P.blank);
+    else if (!$("stWheel").hidden) { if (c === "step") $("wGo")?.click(); else if (c === "close") closeWheel(); }
+    else if (c === "step") { if (P.run) P.run.main(); else if ($("stStart")) $("stStart").click(); else if (P.i < P.items.length - 1) goItem(P.i + 1); }
+    else if (c === "next") { if (P.i < P.items.length - 1) goItem(P.i + 1); }
+    else if (c === "prev") goItem(P.i - 1);
+    remoteState();
+  }
   document.addEventListener("keydown", e => {
     if (!P || $("stage").hidden || e.target.closest("input,textarea,select")) return;
-    if ((e.key === " " || e.key === "Enter") && e.target.closest("button") && e.target.closest(".lv,.st-card,.st-share")) return;   // a focused button on the activity acts itself
-    if (P.run && (e.key === " " || e.key === "Enter")) { e.preventDefault(); P.run.main(); }
-    else if (!P.run && e.key === "Enter" && $("stStart")) { e.preventDefault(); $("stStart").click(); }
-    else if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); if (P.i < P.items.length - 1) goItem(P.i + 1); }
-    else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); goItem(P.i - 1); }
+    if ((e.key === " " || e.key === "Enter") && e.target.closest("button") && e.target.closest(".lv,.st-card,.st-share,.st-wheel")) return;   // a focused button acts itself
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); cmd("step"); }
+    else if (["ArrowRight", "PageDown"].includes(e.key)) { e.preventDefault(); cmd("next"); }
+    else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); cmd("prev"); }
     else if (e.key === "f" || e.key === "F") $("stFs").click();
+    else if (e.key === "w" || e.key === "W") cmd("spin");
+    else if (e.key === "b" || e.key === "B" || e.key === ".") cmd("blank");
+    else if (e.key === "g" || e.key === "G") $("stGest").click();
+    else if (e.key === "h" || e.key === "H") window.TSG?.checkHands();
+    else if (e.key === "Escape" && !$("stWheel").hidden) closeWheel();
+    else if (e.key === "Escape" && !$("stRemote").hidden) $("stRemote").hidden = true;
     else if (e.key === "Escape" && !$("stShare").hidden) $("stShare").hidden = true;
     poke();
   });

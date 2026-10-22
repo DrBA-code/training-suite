@@ -69,3 +69,18 @@ What it does:
 - **Live screen → AI review and feedback** (case study): a summary for the projector, themes, a model answer and the strongest answers. Each group gets personal feedback on their phones.
 - **Live screen → AI summary** (exit tickets): a summary and themes.
 - Each account has a monthly number of AI requests (default 50). The Super Admin changes it in the admin console's Accounts table. Trainers see their use under Settings.
+
+## Step 4: live tools
+
+Run `supabase/schema-7-finger.sql` once (after schema-6).
+
+- **🎯 Spin** (or W) on the live screen, at any moment. It spins the faces of the people in the room, can leave out people already picked, and the picked person's phone buzzes. It's no longer placed in the flow.
+- **✋ Gestures** (or G) uses the webcam:
+  - Right palm sweeping left = next; left palm sweeping right = back.
+  - Two hands apart = zoom; clap = full view; pinch and drag = move while zoomed.
+  - Fist = grab the slide; open the hand towards the room = throw it to phones (towards your left = Group A, right = Group B, straight = everyone).
+  - H checks your hands again.
+  - There is no raised-hand pause.
+- **B** pauses the screen ("Eyes up front"); any key brings it back.
+- **📱 Remote**: scan the QR code with your own phone for Back, Next, Next step, Spin and Pause screen. The key is private to that live screen.
+- **Finger vote**: a new activity. Everyone raises 1 to 5 fingers and the webcam counts the room. "Lock the count" saves it.

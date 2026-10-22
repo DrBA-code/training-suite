@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#14161C">
+<title>Remote · Training Suite</title>
+<link rel="icon" href="../assets/icon-64.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Plus+Jakarta+Sans:wght@500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  /* The facilitator's phone remote: big targets, dark, one screen. */
+  :root{--bg:#14161C;--panel:#1F222B;--line:#2E323D;--fg:#F3F2EE;--muted:#9BA0AA;--red:#D2391F;--yellow:#F4B400;--blue:#2747C8;--green:#3FB98A;
+    --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;--body:"Plus Jakarta Sans",ui-sans-serif,system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;color-scheme:dark}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font-family:var(--body);overscroll-behavior:none;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+  [hidden]{display:none!important}
+  .app{height:100%;display:flex;flex-direction:column;gap:12px;padding-block:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-bottom));padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  header{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  header img{width:34px;height:auto}
+  .status{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+  .status.on .dot{background:var(--green);box-shadow:0 0 0 4px rgba(63,185,138,.2)}
+  .now{background:var(--panel);border-radius:20px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+  .now small{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .now b{font-family:var(--display);font-size:22px;font-weight:800;line-height:1.15}
+  .pad{flex:1;display:grid;grid-template-columns:1fr 1.7fr;gap:12px;min-height:0}
+  button{font:inherit;color:inherit;cursor:pointer}
+  .pad button{border:1px solid var(--line);border-radius:26px;background:var(--panel);font-family:var(--display);font-weight:800;font-size:20px;display:grid;place-content:center;justify-items:center;gap:6px;transition:transform .08s}
+  .pad button span{font-size:52px;line-height:1}
+  .pad #next{background:var(--yellow);color:var(--bg);border:0}
+  .pad button:active{transform:scale(.97)}
+  .step{border:0;border-radius:20px;padding:18px;background:var(--red);font-family:var(--display);font-weight:800;font-size:20px}
+  .row{display:flex;gap:10px}
+  .row button{flex:1;padding:15px 8px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-weight:700;font-size:15px}
+  .row button[aria-pressed="true"]{border-color:var(--yellow);color:var(--yellow)}
+  .join{flex:1;display:grid;align-content:center;gap:14px;text-align:center}
+  .join h1{font-family:var(--display);font-size:30px;margin:0}
+  .join input{font-family:var(--mono);font-size:26px;letter-spacing:.2em;text-transform:uppercase;text-align:center;padding:16px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--fg);width:100%}
+  .join button{padding:16px;border-radius:999px;border:0;background:var(--yellow);color:var(--bg);font-size:18px;font-weight:700}
+  .muted{color:var(--muted);font-size:14px}
+  :focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><div style="display:flex;gap:10px;align-items:center"><img src="../assets/logo.png" alt="Training Suite"><b style="font-family:var(--display);font-size:18px">Remote</b></div>
+    <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Not connected</span></div></header>
+  <form class="join" id="join" hidden><h1>Phone remote</h1><p class="muted">Type the code shown on the live screen under 📱 Remote.</p><input id="code" maxlength="10" autocomplete="off" aria-label="Remote code"><button type="submit">Connect</button></form>
+  <section id="ctl" hidden style="display:flex;flex-direction:column;gap:12px;flex:1;min-height:0">
+    <div class="now"><small id="pos">Waiting for the live screen…</small><b id="label">Open the live screen on the projector</b></div>
+    <div class="pad"><button type="button" id="prev" aria-label="Back"><span>◀</span>Back</button><button type="button" id="next" aria-label="Next"><span>▶</span>Next</button></div>
+    <button type="button" class="step" id="step">Next step</button>
+    <div class="row"><button type="button" id="spin">🎯 Spin</button><button type="button" id="blank" aria-pressed="false">Pause screen</button></div>
+    <p class="muted" style="text-align:center;margin:0">Swipe left or right anywhere to change slides.</p>
+  </section>
+</div>
+<script src="../config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id), cfg = window.TS_CONFIG || {};
+  const sb = window.supabase && cfg.SUPABASE_URL ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  let ch = null, lastState = 0;
+  const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+  function connect(key) {
+    key = key.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!sb || key.length < 6) { $("join").hidden = false; return; }
+    location.hash = key; $("join").hidden = true; $("ctl").hidden = false;
+    ch = sb.channel("ts-remote-" + key, { config: { broadcast: { self: false } } });
+    ch.on("broadcast", { event: "state" }, ({ payload: s }) => {
+      lastState = Date.now(); $("status").classList.add("on"); $("statusTxt").textContent = "Connected";
+      $("label").textContent = s.label || ""; $("pos").textContent = `${s.topic || ""} · ${s.pos} of ${s.total}`;
+      $("step").textContent = s.blank ? "Show the screen" : s.step || "Next step";
+      $("blank").setAttribute("aria-pressed", s.blank); $("blank").textContent = s.blank ? "Show screen" : "Pause screen";
+      $("spin").textContent = s.wheel ? "🎯 Spin again" : "🎯 Spin";
+    });
+    ch.subscribe(st => { if (st === "SUBSCRIBED") send("hello"); });
+    setInterval(() => { if (Date.now() - lastState > 9000) { $("status").classList.remove("on"); $("statusTxt").textContent = "Waiting for the live screen"; } }, 3000);
+  }
+  function send(c) { ch?.send({ type: "broadcast", event: "cmd", payload: { cmd: c } }); if (c !== "hello") buzz(15); }
+  [["prev", "prev"], ["next", "next"], ["step", "step"], ["spin", "spin"], ["blank", "blank"]].forEach(([id, c]) => $(id).addEventListener("click", () => send(c)));
+  let x0 = null;
+  $("ctl").addEventListener("touchstart", e => { x0 = e.touches[0].clientX; }, { passive: true });
+  $("ctl").addEventListener("touchend", e => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 70) send(dx < 0 ? "next" : "prev"); });
+  $("join").addEventListener("submit", e => { e.preventDefault(); connect($("code").value); });
+  const k = location.hash.replace("#", "");
+  if (k) connect(k); else $("join").hidden = false;
+})();
+</script>
+</body>
+</html>
