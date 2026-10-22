@@ -172,6 +172,13 @@
     $("view").focus({ preventScroll: true }); scrollTo({ top: 0 });
   }
   addEventListener("hashchange", route);
+  // menu: drop-down on phones and tablets, foldable to icons on wide screens
+  const navOpen = on => { document.querySelector(".side-nav").classList.toggle("open", on); $("navMenu").setAttribute("aria-expanded", on); $("navMenu").textContent = on ? "Close" : "Menu"; };
+  $("navMenu").addEventListener("click", () => navOpen(!document.querySelector(".side-nav").classList.contains("open")));
+  addEventListener("hashchange", () => navOpen(false));
+  const setFold = on => { document.body.classList.toggle("navmini", on); try { localStorage.setItem("ts_navmini", on ? "1" : ""); } catch {} $("navFold").setAttribute("aria-label", on ? "Open the menu" : "Fold the menu"); $("navFold").title = on ? "Open the menu" : "Fold the menu"; };
+  $("navFold").addEventListener("click", () => setFold(!document.body.classList.contains("navmini")));
+  try { if (localStorage.getItem("ts_navmini")) setFold(true); } catch {}
   $("signOut").addEventListener("click", async () => { await sb.auth.signOut(); profile = null; loaded = false; location.hash = "#/"; route(); });
   const V = html => ($("view").innerHTML = html);
   const head = (lbl, title, right = "") => `<div class="pagehead"><div><span class="lbl">${esc(lbl)}</span><h1>${esc(title)}</h1></div>${right}</div>`;
@@ -195,7 +202,7 @@
       <p>${live ? `“${esc(live.topic)}” is running now.` : next ? `Next up: “${esc(next.topic)}”, ${esc(fmtDate(next.session_date))}${next.start_time ? " at " + esc(next.start_time) : ""}.` : progs.length ? "No sessions scheduled. Add one to a programme to get going." : "Create a programme, then add your first session to it."}</p>
       <div class="row">${live ? `<a class="btn yellow" href="#/present/${live.id}">Back to the live screen <span class="arr">↗</span></a>` : next ? `<a class="btn yellow" href="#/session/${next.id}">Open next session <span class="arr">↗</span></a>` : ""}
         <a class="btn ${next || live ? "ghost" : "yellow"}" href="${progs.length ? "#/new" : "#/programmes?new=1"}">${progs.length ? "+ New session" : "+ Create a programme"}</a></div>
-      <div class="art" aria-hidden="true"><img src="assets/logo.png" alt=""></div></section>`;
+</section>`;
     const stats = `
       <div class="dcard d-stat"><span class="eyebrow">Sessions</span><b>${sessions.length}</b><span class="sub">${done} completed · ${upcoming.length} to run</span></div>
       <div class="dcard d-stat yellow"><span class="eyebrow">People trained</span><b>${num(D.people)}</b><span class="sub">${D.checkins != null ? `${Number(D.checkins).toLocaleString()} check-ins across ${progs.length} programme${progs.length === 1 ? "" : "s"}` : "From your registers"}</span></div>
