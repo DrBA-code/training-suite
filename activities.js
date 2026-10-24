@@ -16,6 +16,9 @@ window.TSA = (() => {
     spot:   { name: "Spot the error",  line: "Participants tap the mistake on a picture.", scored: true, sec: 45, color: "#F4B400" },
     case:   { name: "Case study race", line: "Groups answer a case; the first group to answer is shown.", sec: 300, teams: true, text: true, color: "#14161C" },
     exit:   { name: "Exit ticket",     line: "“One thing I'll apply at my desk.”", sec: 0, text: true, color: "#D2391F" },
+    scale:  { name: "Rating gauge",    line: "Everyone slides to a number; the gauge shows the room's average.", sec: 0, color: "#3FB98A" },
+    feedback: { name: "Star feedback", line: "1 to 5 stars and a comment, any time you want a quick check.", sec: 0, color: "#F4B400" },
+    short:  { name: "Short answer",    line: "Participants type a word or phrase. Auto-marked if you give the accepted answers.", scored: true, sec: 30, color: "#2747C8" },
     finger: { name: "Finger vote",     line: "Everyone raises 1 to 5 fingers; the webcam counts the room.", opts: true, maxOpts: 5, sec: 0, color: "#D2391F" },
     test:   { name: "Pre & post test", line: "The same questions at the start and the end. Each person sees their learning achievement.", opts: true, scored: true, sec: 30, color: "#D2391F", noboard: true }
   };
@@ -29,6 +32,9 @@ window.TSA = (() => {
     if (kind === "spot") return { q: "Tap the error", image: "", aspect: 1.5, region: null };
     if (kind === "case") return { q: "What should the officer do, and why?", text: "" };
     if (kind === "exit") return { q: "One thing I'll apply at my desk next week" };
+    if (kind === "short") return { q: "", accept: [] };
+    if (kind === "scale") return { q: "How confident do you feel about this now?", min: 1, max: 10, low: "Not at all", high: "Completely" };
+    if (kind === "feedback") return { q: "How useful was this part of the session?" };
     return { q: "" };
   }
   // Tidy and check what was typed. Returns [steps, error].
@@ -53,6 +59,8 @@ window.TSA = (() => {
       if (kind === "spot" && !s.image) return [null, "Upload a picture" + at + "."];
       if (kind === "spot" && !s.region) return [null, "Click the picture where the error is" + at + "."];
       if (kind === "case") s.text = String(s.text || "").trim();
+      if (kind === "short") s.accept = (s.accept || []).map(x => String(x).trim()).filter(Boolean).slice(0, 20);
+      if (kind === "scale") { s.min = +s.min || 0; s.max = +s.max || 10; if (s.max <= s.min) return [null, "The top of the scale must be above the bottom" + at + "."]; s.low = String(s.low || "").trim(); s.high = String(s.high || "").trim(); }
       out.push(s);
     }
     if (!out.length) return [null, "Add a question."];
@@ -92,6 +100,14 @@ window.TSA = (() => {
         body += `<div class="row"><label class="btn ghost small">${s.image ? "Change picture" : "Upload a slide or document picture"}<input type="file" accept="image/*" data-a="spotimg" data-i="${i}" hidden></label><span class="small muted">${s.image ? "Click the picture where the error is." : "PNG or JPG."}</span></div>
           ${s.image ? `<div class="spotpick" data-i="${i}"><img src="${esc(s.image)}" alt="">${s.region ? `<span class="tgt" style="left:${s.region.x * 100}%;top:${s.region.y * 100}%;width:${s.region.r * 2 / s.aspect * 100}%;aspect-ratio:1"></span>` : ""}</div>
           <label class="fld" style="max-width:280px">Target size<input type="range" min="0.03" max="0.25" step="0.01" value="${s.region?.r || 0.08}" data-f="r" data-i="${i}"></label>` : ""}`;
+      } else if (kind === "short") {
+        body += `<label class="fld">Accepted answers, one per line<span class="hint">Spelling and capitals are tidied before marking. Leave empty for open answers that aren't marked.</span><textarea rows="3" data-f="accept" data-i="${i}" placeholder="LPO&#10;Local Purchase Order">${esc((s.accept || []).join("\n"))}</textarea></label>`;
+      } else if (kind === "scale") {
+        const nums = Array.from({ length: 11 }, (_, n) => n);
+        body += `<div class="grid2"><label class="fld">From<select data-f="min" data-i="${i}">${nums.slice(0, 2).map(n => `<option ${+s.min === n ? "selected" : ""}>${n}</option>`).join("")}</select></label><label class="fld">To<select data-f="smax" data-i="${i}">${[5, 7, 10].map(n => `<option ${+s.max === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+          <label class="fld">Label for the bottom<input data-f="low" data-i="${i}" value="${esc(s.low)}" placeholder="Not at all"></label><label class="fld">Label for the top<input data-f="high" data-i="${i}" value="${esc(s.high)}" placeholder="Completely"></label></div>`;
+      } else if (kind === "feedback") {
+        body += `<p class="small muted">Phones show 1 to 5 stars and an optional comment.</p>`;
       } else if (kind === "case") {
         body += `<label class="fld">The case (shown on phones)<textarea rows="6" data-f="text" data-i="${i}" placeholder="Describe the situation…">${esc(s.text)}</textarea></label>`;
       }
@@ -130,6 +146,10 @@ window.TSA = (() => {
       else if (f === "opt") s.options[+t.dataset.o] = t.value;
       else if (f === "correct") s.correct = +t.value;
       else if (f === "max") s.max = +t.value;
+      else if (f === "smax") s.max = +t.value;
+      else if (f === "min") s.min = +t.value;
+      else if (f === "low" || f === "high") s[f] = t.value;
+      else if (f === "accept") s.accept = t.value.split("\n").map(x => x.trim()).filter(Boolean);
       else if (f === "items") s.items = t.value.split("\n").map(x => x.trim()).filter(Boolean);
       else if (f === "pairs") s.pairs = t.value.split("\n").map(x => x.trim().match(/^(.+?)\s*(?:=|→|:|\s-\s)\s*(.+)$/)).filter(Boolean).map(m => ({ l: m[1].trim(), r: m[2].trim() }));
       else if (f === "r") { if (s.region) { s.region = { ...s.region, r: +t.value }; const ring = t.closest(".stepc").querySelector(".tgt"); if (ring) ring.style.width = (s.region.r * 2 / s.aspect * 100) + "%"; } }
@@ -167,6 +187,8 @@ window.TSA = (() => {
     if (kind === "order") { out.items = (st.items || []).map(String).filter(Boolean).slice(0, 8); if (out.items.length < 3) return null; }
     if (kind === "match") { out.pairs = (st.pairs || []).filter(p => p && p.l && p.r).map(p => ({ l: String(p.l), r: String(p.r) })).slice(0, 8); if (out.pairs.length < 2) return null; }
     if (kind === "case") out.text = String(st.text || "").slice(0, 4000);
+    if (kind === "short") out.accept = (Array.isArray(st.accept) ? st.accept : []).map(String).filter(Boolean).slice(0, 10);
+    if (kind === "scale") { out.min = [0, 1].includes(+st.min) ? +st.min : 1; out.max = [5, 7, 10].includes(+st.max) ? +st.max : 10; out.low = String(st.low || "Not at all"); out.high = String(st.high || "Completely"); }
     return out;
   }
   function shrinkImage(file, max = 1600) {
@@ -299,7 +321,7 @@ window.TSA = (() => {
         const t = { A: 0, B: 0 }; L.all.forEach(r => { if (r.grp === "A" || r.grp === "B") t[r.grp] += r.points || 0; });
         $l("tA").textContent = t.A; $l("tB").textContent = t.B; $l("tBar").style.width = (t.A + t.B ? 15 + 70 * t.A / (t.A + t.B) : 50) + "%";
       }
-      const showFaces = !rev && !["words", "poll", "exit", "finger"].includes(kind);
+      const showFaces = !rev && !["words", "poll", "exit", "finger", "scale", "feedback"].includes(kind);
       $l("faces").innerHTML = showFaces ? L.rows.slice(-60).map(r => `<span class="fc ${r.grp}">${r.photo ? `<img src="${esc(r.photo)}" alt="">` : esc(initials(r.name))}</span>`).join("") : "";
       (VIZ[kind] || VIZ.text)($l("viz"), s, L.rows, rev);
     }
@@ -363,6 +385,36 @@ window.TSA = (() => {
         } else html += rows.length ? `<div class="lv-cards">${rows.slice().reverse().map(card).join("")}</div>` : waiting("Answers appear here as people send them.");
         v.innerHTML = html;
       }
+    };
+    VIZ.short = (v, s, rows, rev) => {
+      const m = new Map();
+      rows.forEach(r => { const t = String(r.answer?.text || "").trim(); const k = t.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); if (k) { const e = m.get(k) || { t, n: 0, ok: +r.score === 1 }; e.n++; m.set(k, e); } });
+      const list = [...m.values()].sort((a, b) => b.n - a.n).slice(0, 14), max = Math.max(1, ...list.map(x => x.n));
+      if (!rev) { v.innerHTML = waiting(`${rows.length} answer${rows.length === 1 ? "" : "s"} in. ${(s.accept || []).length ? "Reveal to see who got it." : "Show results to read them."}`); return; }
+      const marked = (s.accept || []).length, right = rows.filter(r => +r.score === 1).length;
+      if (marked && rows.length) $l("sub").textContent = `${pct(right / rows.length)}% got it right`;
+      v.innerHTML = `${marked ? `<div class="lv-accept"><span>Accepted</span>${s.accept.map(a => `<b>${esc(a)}</b>`).join("")}</div>` : ""}
+        <div class="lv-shorts">${list.map(x => `<div class="${marked ? (x.ok ? "ok" : "no") : ""}"><span>${esc(x.t)}</span><i style="width:${x.n / max * 100}%"></i><b>${x.n}</b></div>`).join("") || waiting("No answers yet.")}</div>`;
+    };
+    VIZ.scale = (v, s, rows) => {
+      const lo = +s.min || 0, hi = +s.max || 10, vals = rows.map(r => +r.answer?.v).filter(x => !isNaN(x));
+      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null, frac = avg == null ? 0 : (avg - lo) / (hi - lo);
+      const counts = Array.from({ length: hi - lo + 1 }, (_, i) => vals.filter(x => x === lo + i).length), cmax = Math.max(1, ...counts);
+      const ang = -90 + 180 * frac, R = 120;
+      v.innerHTML = `<div class="lv-gauge"><div class="gw"><svg viewBox="-150 -150 300 170" aria-hidden="true"><path d="M-130 0 A130 130 0 0 1 130 0" fill="none" stroke="#1F2924" stroke-width="34" stroke-linecap="round"/>
+          <path d="M-130 0 A130 130 0 0 1 130 0" fill="none" stroke="url(#gg)" stroke-width="34" stroke-linecap="round" stroke-dasharray="${Math.PI * 130 * frac} 999"/>
+          <defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="#F2786F"/><stop offset=".5" stop-color="#F4B400"/><stop offset="1" stop-color="#3FB98A"/></linearGradient></defs>
+          <line x1="0" y1="0" x2="0" y2="-${R - 18}" stroke="#fff" stroke-width="6" stroke-linecap="round" transform="rotate(${ang})" style="transition:transform .8s"/><circle r="12" fill="#fff"/></svg>
+          <div class="gnum">${avg == null ? "–" : avg.toFixed(1)}<small> / ${hi}</small></div><div class="gends"><span>${esc(s.low || lo)}</span><span>${esc(s.high || hi)}</span></div></div>
+        <div class="ghist">${counts.map((c, i) => `<div><i style="height:${c / cmax * 100}%"></i><b>${c || ""}</b><span>${lo + i}</span></div>`).join("")}</div></div>`;
+    };
+    VIZ.feedback = (v, s, rows) => {
+      const st = rows.map(r => +r.answer?.stars).filter(x => x >= 1 && x <= 5), avg = st.length ? st.reduce((a, b) => a + b, 0) / st.length : null;
+      const c = [5, 4, 3, 2, 1].map(n => st.filter(x => x === n).length), cmax = Math.max(1, ...c);
+      const notes = rows.filter(r => String(r.answer?.text || "").trim()).slice(-6).reverse();
+      v.innerHTML = `<div class="lv-stars"><div class="sbig"><b>${avg == null ? "–" : avg.toFixed(1)}</b><span class="stars" style="--p:${avg == null ? 0 : avg / 5 * 100}%">★★★★★</span><small>${st.length} rating${st.length === 1 ? "" : "s"}</small></div>
+        <div class="sdist">${[5, 4, 3, 2, 1].map((n, i) => `<div><span>${n}★</span><i><em style="width:${c[i] / cmax * 100}%"></em></i><b>${c[i]}</b></div>`).join("")}</div></div>
+        ${notes.length ? `<div class="lv-cards" style="margin-top:16px">${notes.map(r => `<div class="tc">${esc(r.answer.text)}<small>${"★".repeat(+r.answer.stars || 0)}</small></div>`).join("")}</div>` : ""}`;
     };
     VIZ.finger = (v, s, rows, rev) => {
       if (!v.querySelector(".lv-finger")) v.innerHTML = `<div class="lv-finger"><div class="fcam"><video playsinline muted></video><canvas></canvas><span class="fmsg">Starting camera…</span>${L.locked ? "" : ""}</div><div class="fbars"></div></div>`;

@@ -84,3 +84,16 @@ Run `supabase/schema-7-finger.sql` once (after schema-6).
 - **B** pauses the screen ("Eyes up front"); any key brings it back.
 - **📱 Remote**: scan the QR code with your own phone for Back, Next, Next step, Spin and Pause screen. The key is private to that live screen.
 - **Finger vote**: a new activity. Everyone raises 1 to 5 fingers and the webcam counts the room. "Lock the count" saves it.
+
+## Step 4b: from the first real sessions
+
+Run `supabase/schema-8-more.sql` once (after schema-7).
+
+- **New session form, in this order:** Session → Slides and resources (slides, files, YouTube and other links) → Activities → Evaluation → Certificate → Flow → Attendance.
+- **Auto-save:** what you type is kept in the browser as you go, and the session is saved as a draft as soon as it has a programme and a topic. Refreshing or closing the page loses nothing; open the draft to carry on where you stopped.
+- **Flow:** a carousel of your slides. Click an activity, then the gap where it should run. Evaluation and certificates are always at the end.
+- **Slide thumbnails** in the form and on the session's Details tab.
+- **Certificate design** per programme: Classic, Modern, Bold, or upload your own.
+- **New activities:** Short answer (auto-marked against accepted answers), Rating gauge, Star feedback.
+- **Live screen:** slide transitions (Morph, Zoom, Fade, Slide, None; ✨ button or T). In full screen the bars hide and come back when the mouse reaches the bottom edge. Links can be shared to phones.
+- Upload progress shows in green, never red.

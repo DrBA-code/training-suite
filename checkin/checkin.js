@@ -165,13 +165,13 @@
   function render(fresh) {
     const list = items.filter(forMe);
     $("items").innerHTML = list.length ? list.map(i => `<a class="item${fresh && !seen.has(i.id) ? " new" : ""}" href="${esc(i.url)}" target="_blank" rel="noopener">
-        <span class="ic">${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : esc((i.name.split(".").pop() || "FILE").slice(0, 4).toUpperCase())}</span>
-        <span><b>${esc(i.name || "Item")}</b><small>${i.kind === "slide" ? "Slide" : "File"} · ${fmtTime(i.at)}</small></span><span class="ok">Open</span></a>`).join("")
+        <span class="ic">${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : i.kind === "link" ? (/youtu\.?be/i.test(i.url) ? "▶" : "LINK") : esc((i.name.split(".").pop() || "FILE").slice(0, 4).toUpperCase())}</span>
+        <span><b>${esc(i.name || "Item")}</b><small>${i.kind === "slide" ? "Slide" : i.kind === "link" ? "Link" : "File"} · ${fmtTime(i.at)}</small></span><span class="ok">Open</span></a>`).join("")
       : `<p class="muted">Nothing yet. When your facilitator shares a slide or a file, it lands here. Keep this page open.</p>`;
     list.forEach(i => seen.add(i.id)); store.set("ts_seen_" + code, [...seen].slice(-300));
   }
   function fly(i) {
-    $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">${i.kind === "slide" ? "A slide for you" : "A file for you"}</span>${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : ""}<b style="font-family:var(--display);font-size:20px">${esc(i.name)}</b><div class="row"><a class="btn red" href="${esc(i.url)}" target="_blank" rel="noopener">Open</a><button class="btn ghost" type="button" id="flyOk">Keep in My items</button></div>`;
+    $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">${i.kind === "slide" ? "A slide for you" : i.kind === "link" ? "A link for you" : "A file for you"}</span>${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : ""}<b style="font-family:var(--display);font-size:20px">${esc(i.name)}</b><div class="row"><a class="btn red" href="${esc(i.url)}" target="_blank" rel="noopener">Open</a><button class="btn ghost" type="button" id="flyOk">Keep in My items</button></div>`;
     $("fly").hidden = false; buzz([30, 40, 60]);
     $("flyOk").onclick = () => ($("fly").hidden = true);
     clearTimeout(fly.t); fly.t = setTimeout(() => ($("fly").hidden = true), 20000);
@@ -181,7 +181,7 @@
 
   // ---------- live activities ----------
   const LET = "ABCDEF", COL = ["#F4B400", "#3FB98A", "#5AA9E6", "#F2786F", "#B48EF0", "#F0A35E"];
-  const NAMES = { poll: "Live poll", words: "Word cloud", quiz: "Quiz", buzz: "First to catch", battle: "Group battle", order: "Order it", match: "Match it", spot: "Spot the error", case: "Case study", exit: "Exit ticket", test: "Test", finger: "Finger vote" };
+  const NAMES = { poll: "Live poll", words: "Word cloud", quiz: "Quiz", buzz: "First to catch", battle: "Group battle", order: "Order it", match: "Match it", spot: "Spot the error", case: "Case study", exit: "Exit ticket", test: "Test", finger: "Finger vote", short: "Short answer", scale: "Rating", feedback: "Feedback" };
   let cur = null, lastKey = "", draft = null, deadline = 0, sending = false, lastRun = "";
   async function refreshLive(force) {
     if (!me) return;
@@ -227,6 +227,9 @@
     if (k === "finger") return `<p class="res">✋ Raise your hand</p><p class="muted">Hold your hand up high, facing the screen, with:</p><div class="ord">${(q.options || []).map((o, i) => `<div style="grid-template-columns:44px 1fr"><b style="font-size:22px;color:var(--ink)">${i + 1}</b><span>${i + 1} finger${i ? "s" : ""} = ${esc(o)}</span></div>`).join("")}</div>`;
     if (q.options) return `<div class="ch">${q.options.map((o, i) => `<button type="button" data-i="${i}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>
       ${c.teams && group === "all" ? `<p class="small muted">Pick Group A or Group B below so your points count for your group.</p>` : ""}`;
+    if (k === "short") return `<input class="wi" id="aShort" maxlength="120" placeholder="Your answer" autocomplete="off"><button class="btn red" type="button" id="aSend">Send</button>`;
+    if (k === "scale") { const lo = +q.min || 0, hi = +q.max || 10, mid = Math.round((lo + hi) / 2); return `<div class="sc"><output id="scOut">${mid}</output><input type="range" id="aScale" min="${lo}" max="${hi}" step="1" value="${mid}" aria-label="Your rating"><div class="scends"><span>${esc(q.low || lo)}</span><span>${esc(q.high || hi)}</span></div></div><button class="btn red" type="button" id="aSend">Send</button>`; }
+    if (k === "feedback") return `<div class="stars5" id="stars5" role="radiogroup" aria-label="Stars">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-st="${n}" role="radio" aria-checked="false" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}</div><textarea id="aText" rows="3" maxlength="600" placeholder="Anything to add? (optional)"></textarea><button class="btn red" type="button" id="aSend" disabled>Send</button>`;
     if (k === "words") return `${Array.from({ length: q.max || 1 }, (_, i) => `<input class="wi" maxlength="40" data-w="${i}" placeholder="${(q.max || 1) > 1 ? "Answer " + (i + 1) : "One or two words"}" autocomplete="off">`).join("")}<button class="btn red" type="button" id="aSend">Send</button>`;
     if (k === "order") { draft = draft || [...q.items]; return `<p class="small muted">Use the arrows to put them in the right order, top first.</p><div class="ord" id="ord">${ordRows()}</div><button class="btn red" type="button" id="aSend">Send my order</button>`; }
     if (k === "match") return `<div class="mt">${q.lefts.map((l, i) => `<label>${esc(l)}<select data-m="${i}"><option value="">Choose…</option>${q.rights.map(r => `<option>${esc(r)}</option>`).join("")}</select></label>`).join("")}</div><button class="btn red" type="button" id="aSend">Send my matches</button>`;
@@ -237,6 +240,8 @@
   function wireAnswer(c, q) {
     const box = $("act");
     box.querySelectorAll(".ch button[data-i]").forEach(b => b.addEventListener("click", () => send({ i: +b.dataset.i })));
+    if ($("aScale")) $("aScale").addEventListener("input", e => ($("scOut").textContent = e.target.value));
+    if ($("stars5")) $("stars5").addEventListener("click", e => { const b = e.target.closest("[data-st]"); if (!b) return; draft = +b.dataset.st; $("stars5").querySelectorAll("button").forEach(x => { const on = +x.dataset.st <= draft; x.classList.toggle("on", on); x.setAttribute("aria-checked", +x.dataset.st === draft); }); $("aSend").disabled = false; });
     const ord = $("ord");
     if (ord) ord.addEventListener("click", e => {
       const b = e.target.closest("button"); if (!b) return;
@@ -252,6 +257,9 @@
       if (k === "order") return send({ items: draft });
       if (k === "match") { const rights = [...box.querySelectorAll("[data-m]")].map(s => s.value); if (rights.some(x => !x)) return (err.textContent = "Match every item first."); return send({ rights }); }
       if (k === "spot") return draft && send({ x: draft.x, y: draft.y });
+      if (k === "short") { const t = $("aShort").value.trim(); if (!t) return (err.textContent = "Type your answer first."); return send({ text: t }); }
+      if (k === "scale") return send({ v: +$("aScale").value });
+      if (k === "feedback") { if (!draft) return (err.textContent = "Tap the stars first."); return send({ stars: draft, text: ($("aText").value || "").trim() }); }
       const text = $("aText").value.trim(); if (!text) return (err.textContent = "Write your answer first."); send({ text });
     });
   }
@@ -276,6 +284,8 @@
     const a = mine.answer || {};
     if (a.i != null && q.options) return `<div class="ch">${q.options.map((o, i) => `<button type="button" disabled class="${i === a.i ? "mine" : "wrong"}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>`;
     if (a.words) return `<p><b>${a.words.map(esc).join(" · ")}</b></p>`;
+    if (a.v != null) return `<p class="res">${esc(a.v)}<span class="muted" style="font-size:16px"> on the scale</span></p>`;
+    if (a.stars) return `<p class="res" style="color:var(--yellow)">${"★".repeat(a.stars)}</p>${a.text ? `<p class="case">${esc(a.text)}</p>` : ""}`;
     if (a.text) return `<p class="case">${esc(a.text)}</p>`;
     return "";
   }
@@ -283,6 +293,7 @@
     const a = mine?.answer || {}, scored = mine && mine.score != null;
     let head = !mine ? `<p class="muted">You didn't answer this one.</p>` : scored ? (+mine.score === 1 ? `<p class="res good">Correct! +${mine.points} points</p>` : +mine.score > 0 ? `<p class="res">${Math.round(mine.score * 100)}% right · +${mine.points} points</p>` : `<p class="res bad">Not quite</p>`) : `<p class="res">Thanks for answering</p><p class="muted">The results are on the screen.</p>`;
     if (q.options && q.correct != null) return head + `<div class="ch">${q.options.map((o, i) => `<button type="button" disabled class="${i === q.correct ? "right" : ""} ${i === a.i ? "mine" : i !== q.correct ? "wrong" : ""}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}${i === q.correct ? " ✓" : ""}</span></button>`).join("")}</div>`;
+    if (q.accept) return head + `<p class="small muted">Accepted answer${q.accept.length > 1 ? "s" : ""}</p><p><b>${q.accept.map(esc).join(" · ")}</b></p>${a.text ? `<p class="small muted">You wrote: ${esc(a.text)}</p>` : ""}`;
     if (q.answer_items) return head + `<p class="small muted">The right order</p><div class="ord">${q.answer_items.map((it, i) => `<div style="grid-template-columns:28px 1fr"><b>${i + 1}</b><span>${esc(it)}${a.items && a.items[i] === it ? " ✓" : ""}</span></div>`).join("")}</div>`;
     if (q.answer_pairs) return head + `<div class="ord">${q.answer_pairs.map((p, i) => `<div style="grid-template-columns:1fr"><span>${esc(p.l)} → <b>${esc(p.r)}</b>${a.rights && a.rights[i] === p.r ? " ✓" : ""}</span></div>`).join("")}</div>`;
     if (q.region) return head + `<div class="sp"><img src="${esc(q.image)}" alt=""><span class="tgt" style="left:${q.region.x * 100}%;top:${q.region.y * 100}%;width:${q.region.r * 2 / (q.aspect || 1) * 100}%;aspect-ratio:1"></span>${a.x != null ? `<span class="dot" style="left:${a.x * 100}%;top:${a.y * 100}%"></span>` : ""}</div>`;

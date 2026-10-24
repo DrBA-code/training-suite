@@ -15,10 +15,13 @@
     ["wheel", "Spin the wheel", "Always on the live screen: pick who answers next", "#14161C"],
     ["finger", "Finger vote", "The webcam counts raised fingers", "#D2391F"],
     ["words", "Word cloud", "Short answers grow on screen", "#2747C8"],
-    ["poll", "Live poll", "Bars grow as votes come in", "#F4B400"]
+    ["poll", "Live poll", "Bars grow as votes come in", "#F4B400"],
+    ["scale", "Rating gauge", "Everyone slides to a number; a gauge shows the average", "#3FB98A"],
+    ["feedback", "Star feedback", "1 to 5 stars and a comment", "#F4B400"]
   ];
   const ASS = [
     ["quiz", "Quiz", "Timed, with a portrait leaderboard", "#2747C8"],
+    ["short", "Short answer", "Type a word or phrase; auto-marked", "#2747C8"],
     ["buzz", "First to catch", "First correct answer wins", "#F4B400"],
     ["battle", "Group battle", "Group A against Group B", "#14161C"],
     ["order", "Order it", "Put the steps in order", "#D2391F"],
@@ -30,7 +33,7 @@
   const TOOL = Object.fromEntries([...ENG, ...ASS].map(([id, name, line, color]) => [id, { id, name, line, color }]));
   const PLACEABLE = id => id !== "exit" && id !== "throw" && id !== "wheel";   // throw and the wheel are always on the live screen; exit ticket goes at the end
   // Tools that need questions written (activities.js); "test" is the pre/post test.
-  const SLOTS = ["poll", "words", "finger", "quiz", "buzz", "battle", "order", "match", "spot", "case", "exit"];
+  const SLOTS = ["poll", "words", "finger", "scale", "feedback", "quiz", "short", "buzz", "battle", "order", "match", "spot", "case", "exit"];
   const slotsOf = s => [...(s.pre_test || s.post_test ? ["test"] : []), ...SLOTS.filter(t => (s.tools || []).includes(t))];
   const acts = {};   // session id → activities
   async function loadActs(sid, fresh) {
@@ -323,19 +326,31 @@
   }
 
   // ---------- the guided session form ----------
-  const STEP_NAMES = ["Topic", "Attendance", "Slides", "Engagement", "Assessment", "Evaluation", "Certificate", "Flow"];
-  const STEP_TITLES = ["Programme and topic", "Attendance and tests", "Slides and files", "How will you engage the room?", "How will you check learning?", "Session evaluation", "Certificates", "Your session flow"];
-  let W = null;
+  // Order: session → slides and resources → activities → evaluation → certificate → flow → attendance.
+  // Everything is kept as you type (in this browser) and, once the session has a programme and topic, saved as a draft.
+  const STEPS = [["Session", "Session details"], ["Slides", "Slides and resources"], ["Activities", "How will you engage and check learning?"], ["Evaluation", "Session evaluation"], ["Certificate", "Certificate"], ["Flow", "Your session flow"], ["Attendance", "Attendance and check-in"]];
+  const LAST = STEPS.length - 1;
+  let W = null, wizTimer = null, wizSrvTimer = null;
+  const wizKey = k => "ts_wiz_" + k;
+  function wizSaveLocal() {
+    if (!W) return;
+    try { localStorage.setItem(wizKey(W.key), JSON.stringify({ ...W, tools: [...W.tools], savedAt: Date.now() })); } catch {}
+  }
+  function wizForget(key) { try { localStorage.removeItem(wizKey(key)); } catch {} }
   function viewWizard(editId) {
     const src = editId ? sessions.find(s => s.id === editId) : null;
     if (editId && !src) { V(`<p class="muted">Session not found.</p>`); return; }
-    if (!W || W.key !== (editId || "new:" + (query().get("p") || ""))) {
-      W = { key: editId || "new:" + (query().get("p") || ""), at: 0, id: src ? src.id : crypto.randomUUID(), existing: !!src,
+    const key = editId || "new:" + (query().get("p") || "");
+    if (!W || W.key !== key) {
+      let saved = null; try { saved = JSON.parse(localStorage.getItem(wizKey(key)) || "null"); } catch {}
+      if (saved && (!editId || saved.id === editId)) { W = { ...saved, tools: new Set(saved.tools || []), restored: true }; }
+      else W = { key, at: 0, id: src ? src.id : crypto.randomUUID(), existing: !!src, draft: src?.status === "draft",
         programme_id: src?.programme_id || query().get("p") || progs[0]?.id || "", topic: src?.topic || "", session_date: src?.session_date || "", start_time: src?.start_time || "",
         venue: src?.venue || "", course_lead: src?.course_lead || profile.full_name || "", objectives: src?.objectives || "", main_topic: src?.main_topic || "", key_skill: src?.key_skill || "",
-        pre_test: src ? src.pre_test : true, post_test: src ? src.post_test : true, tools: new Set(src?.tools || ["throw", "wheel", "quiz", "exit"]),
+        pre_test: src ? src.pre_test : true, post_test: src ? src.post_test : true, tools: new Set((src?.tools || ["quiz", "exit"]).filter(t => t !== "wheel" && t !== "throw")),
         flow: src?.flow || [], evaluation: src?.evaluation || { mode: "default", anonymous: true, at_tapout: true }, files: src?.files || [], slide_count: src?.slide_count || 0,
         attendance_code: src?.attendance_code || "" };
+      W.at = Math.min(W.at || 0, LAST);
     }
     drawWizard();
   }
@@ -343,14 +358,13 @@
   function grabStep() {
     const v = $("view");
     if (W.at === 0) ["programme_id", "topic", "session_date", "start_time", "venue", "course_lead", "objectives", "main_topic", "key_skill"].forEach(k => (W[k] = wizardField(k)));
-    if (W.at === 1) { W.pre_test = v.querySelector("[name=pre_test]").checked; W.post_test = v.querySelector("[name=post_test]").checked; }
-    if (W.at === 5) W.evaluation = { mode: v.querySelector("[name=evmode]:checked").value, anonymous: v.querySelector("[name=anon]").checked, at_tapout: v.querySelector("[name=tapout]").checked };
-    if (W.at === 7) v.querySelectorAll("[data-after]").forEach(i => { const f = W.flow.find(x => x.tool === i.dataset.after); if (f) f.after = Math.max(0, parseInt(i.value, 10) || 0); });
+    if (W.at === 2) { const a = v.querySelector("[name=pre_test]"), b = v.querySelector("[name=post_test]"); if (a) W.pre_test = a.checked; if (b) W.post_test = b.checked; }
+    if (W.at === 3) { const m = v.querySelector("[name=evmode]:checked"); if (m) W.evaluation = { mode: m.value, anonymous: v.querySelector("[name=anon]").checked, at_tapout: v.querySelector("[name=tapout]").checked }; }
   }
   function checkStep(i) {
     if (i === 0) {
       if (!W.programme_id) return "Pick a programme, or create one first.";
-      if (W.topic.length < 2) return "Type the session topic.";
+      if (String(W.topic || "").length < 2) return "Type the session topic.";
     }
     return "";
   }
@@ -359,8 +373,72 @@
     W.flow = W.flow.filter(f => placeable.includes(f.tool));
     const sc = W.slide_count || 0;
     placeable.forEach((t, i) => { if (!W.flow.some(f => f.tool === t)) W.flow.push({ tool: t, after: sc ? Math.round(sc * (i + 1) / (placeable.length + 1)) : 0 }); });
+    W.flow.forEach(f => { if (sc && f.after > sc) f.after = sc; });
     W.flow.sort((a, b) => a.after - b.after);
   }
+  const wizRow = () => ({ id: W.id, programme_id: W.programme_id, topic: W.topic, session_date: W.session_date || null, start_time: W.start_time, venue: W.venue, course_lead: W.course_lead,
+    objectives: W.objectives, main_topic: W.main_topic, key_skill: W.key_skill, pre_test: W.pre_test, post_test: W.post_test, tools: [...W.tools],
+    flow: W.flow, evaluation: W.evaluation, files: W.files, slide_count: W.slide_count });
+  function wizStatus(t, ok) { const el = $("wSaved"); if (el) { el.textContent = t; el.classList.toggle("ok", !!ok); } }
+  // Save to the server as a draft: new sessions as soon as they have a programme and topic; drafts on every change.
+  async function wizSaveServer() {
+    if (!W || checkStep(0)) return;
+    if (W.existing && !W.draft) { wizStatus("Changes kept on this computer · press Save to publish them", true); return; }
+    syncFlow(); wizStatus("Saving…");
+    const row = { ...wizRow(), status: "draft" };
+    const res = W.existing ? await sb.from("sessions").update(row).eq("id", W.id).select().single() : await sb.from("sessions").insert(row).select().single();
+    if (res.error) { wizStatus("Not saved yet: " + errText(res.error, "check the connection")); return; }
+    sessions = [...sessions.filter(x => x.id !== res.data.id), res.data].sort((a, b) => (a.session_date || "9999").localeCompare(b.session_date || "9999"));
+    W.attendance_code = res.data.attendance_code;
+    if (!W.existing) {
+      const old = W.key; W.existing = true; W.draft = true; W.key = W.id; wizForget(old); wizSaveLocal();
+      history.replaceState(null, "", "#/edit/" + W.id);
+    }
+    wizStatus("Draft saved ✓ " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), true);
+  }
+  function wizChanged() {
+    clearTimeout(wizTimer); clearTimeout(wizSrvTimer);
+    wizTimer = setTimeout(() => { if (!W || !$("wSaved")) return; grabStep(); wizSaveLocal(); }, 300);
+    wizSrvTimer = setTimeout(() => { if (W && $("wSaved")) wizSaveServer(); }, 2500);
+  }
+
+  // slide thumbnails (pdf.js), cached per file path
+  const PDFS = {}, THUMBS = {};
+  async function ensurePdfjs() {
+    if (!window.pdfjsLib) await new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "vendor/pdf.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+  }
+  async function pdfDoc(path, file) {
+    if (PDFS[path]) return PDFS[path];
+    await ensurePdfjs();
+    if (file) return (PDFS[path] = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise);
+    const { data, error } = await sb.storage.from("session-files").createSignedUrl(path, 3600);
+    if (error) throw error;
+    return (PDFS[path] = await window.pdfjsLib.getDocument(data.signedUrl).promise);
+  }
+  // Fill every <img data-th="n" data-path="…"> under root with that slide's picture.
+  async function fillThumbs(root) {
+    const imgs = [...root.querySelectorAll("img[data-th]")]; if (!imgs.length) return;
+    const path = imgs[0].dataset.path; let doc;
+    try { doc = await pdfDoc(path); } catch { return; }
+    THUMBS[path] = THUMBS[path] || {};
+    for (const im of imgs) {
+      const n = +im.dataset.th;
+      if (!THUMBS[path][n]) {
+        try {
+          const pg = await doc.getPage(n), v1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 240 / v1.width });
+          const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+          const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+          await pg.render({ canvasContext: g, viewport: vp }).promise;
+          THUMBS[path][n] = c.toDataURL("image/jpeg", 0.8);
+        } catch { continue; }
+      }
+      if (im.isConnected) { im.src = THUMBS[path][n]; im.classList.add("in"); }
+    }
+  }
+  const thumbStrip = (path, count) => `<div class="thumbs">${Array.from({ length: count }, (_, k) => `<figure><img data-th="${k + 1}" data-path="${esc(path)}" alt="Slide ${k + 1}"><figcaption>${k + 1}</figcaption></figure>`).join("")}</div>`;
+  const linkKind = u => /youtu\.?be/i.test(u) ? "YouTube" : /\.(pdf|docx?|pptx?|xlsx?)(\?|$)/i.test(u) ? "Document" : "Link";
+
   function drawWizard() {
     const at = W.at, p = progs.find(x => x.id === W.programme_id);
     let body = "";
@@ -377,148 +455,203 @@
         <label class="fld">Key skill, for the evaluation<span class="hint">“I can now …”</span><input name="key_skill" value="${esc(W.key_skill)}" placeholder="e.g. write a clear prompt that gets a usable draft"></label></div>`
         : `<div class="empty"><div><h2>Create a programme first</h2><p class="muted">Every session belongs to a programme, such as a course or a workshop series.</p><a class="btn" style="align-self:flex-start" href="#/programmes?new=1&back=new">+ New programme</a></div></div>`;
     } else if (at === 1) {
-      const code = W.attendance_code;
-      body = `<div class="row" style="align-items:stretch;gap:28px">
-        <div style="flex:1 1 360px;border:1.5px solid var(--ink);padding:22px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-          ${code ? `<div class="qr">${qrSvg(checkinLink(code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Attendance</span><span class="code">${esc(code)}</span><span class="small" style="word-break:break-all;font-family:var(--mono)">${esc(checkinLink(code))}</span></div>`
-          : `<div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Attendance</span><b style="font-family:var(--display);font-size:20px">Your check-in code and QR code are made when you save the session.</b><span class="muted small">Participants scan it at the door to check in. The check-in page itself arrives in the next phase.</span></div>`}
-        </div>
-        <div style="flex:1 1 360px;display:flex;flex-direction:column;gap:12px">
-          <label class="opt"><input type="checkbox" name="pre_test" ${W.pre_test ? "checked" : ""}><span><b>Pre-test at the start</b><span class="muted">Right after check-in, before you start training.</span></span></label>
-          <label class="opt"><input type="checkbox" name="post_test" ${W.post_test ? "checked" : ""}><span><b>Post-test at the end</b><span class="muted">The same questions, shuffled. Each person sees their learning achievement.</span></span></label>
-          <p class="small muted">You'll add the test questions (yourself, from the Library or drafted by AI) in the assessment phase.</p>
-        </div></div>`;
-    } else if (at === 2) {
-      const slides = W.files.find(f => f.kind === "slides"), share = W.files.filter(f => f.kind === "share");
-      body = `<div class="row" style="align-items:flex-start;gap:28px">
-        <div style="flex:1 1 420px;display:flex;flex-direction:column;gap:12px"><span class="lbl">Slides</span>
-          <label class="drop" for="slideIn"><b style="font-family:var(--display);font-size:18px">${slides ? "Replace your slides" : "Choose your slides"}</b><span class="muted small">PDF (save PowerPoint as PDF), up to 50 MB. You'll change slides by hand gesture or phone.</span></label>
+      const slides = W.files.find(f => f.kind === "slides"), share = W.files.filter(f => f.kind === "share"), links = W.files.filter(f => f.kind === "link");
+      body = `<section class="wsec"><div class="d-head"><h3>Slides</h3>${slides ? `<span class="small muted">${esc(slides.name)} · ${W.slide_count || "?"} slides</span>` : ""}</div>
+          <label class="drop" for="slideIn"><b style="font-family:var(--display);font-size:18px">${slides ? "Replace your slides" : "Choose your slides"}</b><span class="muted small">PDF, up to 50 MB. In PowerPoint use File → Save As → PDF.</span></label>
           <input type="file" id="slideIn" accept="application/pdf,.pdf" hidden>
-          ${slides ? `<div class="filerow"><span>${esc(slides.name)} · ${W.slide_count || "?"} slides</span><button type="button" data-rm="${esc(slides.path)}">Remove</button></div>` : ""}
-          <span class="err" id="upMsg" role="status"></span></div>
-        <div style="flex:1 1 320px;display:flex;flex-direction:column;gap:12px"><span class="lbl">Files to share in the session</span>
-          <span class="small muted">Preload them now. During the session, tap Share file and throw them to the room.</span>
-          ${share.map(f => `<div class="filerow"><span>${esc(f.name)}</span><button type="button" data-rm="${esc(f.path)}">Remove</button></div>`).join("")}
-          <label class="btn ghost small" for="shareIn" style="align-self:flex-start">+ Add files</label>
-          <input type="file" id="shareIn" multiple hidden accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*"></div></div>`;
-    } else if (at === 3 || at === 4) {
-      const list = at === 3 ? ENG : ASS;
-      body = `<p class="muted">${at === 3 ? "Tick what you'll use. You'll place each one between your slides on the last step. Anything you skip is still one click away during the session." : "Tick how you'll check learning. You can add the questions later."}</p>
-        <div class="toolgrid">${list.map(([id, name, line, color]) => { const on = W.tools.has(id); return `<button type="button" class="toolc" data-tool="${id}" aria-pressed="${on}"><span class="top"><span class="sq" style="background:${color}"></span><span class="mk">${on ? "ADDED" : "+ ADD"}</span></span><b>${esc(name)}</b><span>${esc(line)}</span></button>`; }).join("")}</div>`;
-    } else if (at === 5) {
+          <span class="upmsg" id="upMsg" role="status"></span>
+          ${slides ? `${W.slide_count ? thumbStrip(slides.path, W.slide_count) : ""}<div class="row"><button type="button" class="btn ghost small" data-rm="${esc(slides.path)}">Remove slides</button></div>` : ""}</section>
+        <section class="wsec"><div class="d-head"><h3>Files to share</h3><label class="btn ghost small" for="shareIn">+ Add files</label></div>
+          <span class="small muted">Handouts, templates, readings. During the session, tap Share file to send them to phones.</span>
+          <input type="file" id="shareIn" multiple hidden accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,image/*">
+          <span class="upmsg" id="upMsg2" role="status"></span>
+          ${share.map(f => `<div class="filerow"><span>📄 ${esc(f.name)}</span><button type="button" data-rm="${esc(f.path)}">Remove</button></div>`).join("")}</section>
+        <section class="wsec"><div class="d-head"><h3>Links</h3></div>
+          <span class="small muted">YouTube videos, articles, websites. Share them to phones during the session.</span>
+          <form class="row" id="linkForm" novalidate><input class="in" name="url" placeholder="Paste a link, e.g. https://youtu.be/…" style="flex:2 1 260px" aria-label="Link"><input class="in" name="title" placeholder="Title (optional)" style="flex:1 1 180px" aria-label="Link title"><button class="btn small" type="submit">Add link</button></form>
+          <span class="err" id="linkErr" role="alert"></span>
+          ${links.map(f => `<div class="filerow"><span>${f.sub === "YouTube" ? "▶" : "🔗"} ${esc(f.name)} <small class="muted">${esc(f.sub || "")}</small></span><button type="button" data-rmlink="${esc(f.url)}">Remove</button></div>`).join("")}</section>`;
+    } else if (at === 2) {
+      const grid = list => `<div class="toolgrid">${list.filter(([id]) => id !== "throw" && id !== "wheel").map(([id, name, line, color]) => { const on = W.tools.has(id); return `<button type="button" class="toolc" data-tool="${id}" aria-pressed="${on}"><span class="top"><span class="sq" style="background:${color}"></span><span class="mk">${on ? "ADDED ✓" : "+ ADD"}</span></span><b>${esc(name)}</b><span>${esc(line)}</span></button>`; }).join("")}</div>`;
+      body = `<div class="note">Always on the live screen, no need to add: <b>🎯 Spin the wheel</b>, <b>✊ Throw a slide</b> and <b>Share file</b>.</div>
+        <section class="wsec"><h3>Engage the room</h3>${grid(ENG)}</section>
+        <section class="wsec"><h3>Check learning</h3>
+          <div class="grid2"><label class="opt"><input type="checkbox" name="pre_test" ${W.pre_test ? "checked" : ""}><span><b>Pre-test at the start</b><span class="muted">Right after check-in. Answers stay hidden.</span></span></label>
+          <label class="opt"><input type="checkbox" name="post_test" ${W.post_test ? "checked" : ""}><span><b>Post-test at the end</b><span class="muted">Same questions. Each person sees their learning achievement.</span></span></label></div>
+          ${grid(ASS)}<p class="small muted">You write the questions on the session's Assessments tab, yourself or drafted by AI.</p></section>`;
+    } else if (at === 3) {
       const ev = W.evaluation;
-      body = `<div style="display:flex;flex-direction:column;gap:12px;max-width:720px">
+      body = `<div style="display:flex;flex-direction:column;gap:12px;max-width:760px">
         <label class="opt"><input type="radio" name="evmode" value="default" ${ev.mode !== "none" ? "checked" : ""}><span><b>Default evaluation</b><span class="muted">Reaction and learning (Kirkpatrick levels 1 and 2), 17 items, about 2 minutes, filled with your topic and key skill.</span></span></label>
         <label class="opt"><input type="radio" name="evmode" value="none" ${ev.mode === "none" ? "checked" : ""}><span><b>No evaluation for this session</b></span></label>
         <label class="opt"><input type="checkbox" name="anon" ${ev.anonymous ? "checked" : ""}><span><b>Anonymous to the course lead</b><span class="muted">You see completion counts and results, not who said what.</span></span></label>
         <label class="opt"><input type="checkbox" name="tapout" ${ev.at_tapout ? "checked" : ""}><span><b>Ask at tap-out</b><span class="muted">Anyone tapping out who hasn't filled it is asked first.</span></span></label>
-        <p class="small muted">Your own evaluation templates arrive with the evaluation phase.</p></div>`;
-    } else if (at === 6) {
+        <p class="small muted">The evaluation always comes at the end of the session. Editing the questions and your own forms come with the evaluation update.</p></div>`;
+    } else if (at === 4) {
       const last = isLastInProgramme({ id: W.id, programme_id: W.programme_id, session_date: W.session_date });
-      body = `<div style="display:flex;flex-direction:column;gap:12px;max-width:760px">
-        <div class="note">Certificates are <b>optional</b> and belong to the <b>programme</b>: they're issued at the end of its last session. A programme with one session gets them at the end of that session.</div>
-        ${p ? `<label class="opt"><input type="checkbox" id="certOn" ${p.certificates ? "checked" : ""}><span><b>Issue certificates for “${esc(p.name)}”</b><span class="muted">${p.certificates ? (last ? "They'll be issued at the end of this session (the programme's last, by date)." : "They'll be issued at the end of the programme's last session, not this one.") : "Tick to turn certificates on for the whole programme."}</span></span></label>
-        <p class="small muted">Who qualifies and the certificate design are set on the programme. Designs and templates arrive with the certificates phase.</p>` : `<p class="muted">Pick a programme on the first step.</p>`}</div>`;
-    } else if (at === 7) {
+      const d = p?.cert_design || { template: "classic" };
+      const T = [["classic", "Classic", "Gold frame, serif"], ["modern", "Modern", "Clean, colour band"], ["bold", "Bold", "Big colour blocks"]];
+      const mini = (t) => `<div class="cmini ${t}"><span class="cm-k">Certificate of completion</span><span class="cm-n">Ada Obi</span><span class="cm-p">${esc(p?.name || "Programme")}</span></div>`;
+      body = p ? `<div style="display:flex;flex-direction:column;gap:14px;max-width:900px">
+        <div class="note">Certificates are <b>optional</b> and belong to the <b>programme</b>: they're issued at the end of its last session.</div>
+        <label class="opt"><input type="checkbox" id="certOn" ${p.certificates ? "checked" : ""}><span><b>Issue certificates for “${esc(p.name)}”</b><span class="muted">${p.certificates ? (last ? "They'll be issued at the end of this session (the programme's last, by date)." : "They'll be issued at the end of the programme's last session, not this one.") : "Tick to turn certificates on for the whole programme."}</span></span></label>
+        ${p.certificates ? `<label class="fld" style="max-width:460px">Who qualifies<select id="certRule">${[["completion", "Completion: attended, post-test and evaluation"], ["attendance", "Attendance only"], ["achievement", "Achievement: completion plus a pass mark"]].map(([v, t]) => `<option value="${v}" ${p.cert_rule === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          <span class="lbl">Design</span>
+          <div class="cpick">${T.map(([id, n, l]) => `<button type="button" class="cpk" data-tpl="${id}" aria-pressed="${!d.upload && d.template === id}">${mini(id)}<b>${n}</b><span class="small muted">${l}</span></button>`).join("")}
+            <label class="cpk up" aria-pressed="${!!d.upload}"><span class="cmini upl">${d.upload ? `✓ ${esc(d.upload_name || "Your design")}` : "⬆ Upload your own design"}</span><b>Your own</b><span class="small muted">PDF or image (A4 landscape). Names are printed on it.</span><input type="file" id="certUp" accept="application/pdf,image/png,image/jpeg" hidden></label></div>
+          <span class="upmsg" id="certMsg" role="status"></span>` : ""}</div>`
+        : `<p class="muted">Pick a programme on the first step.</p>`;
+    } else if (at === 5) {
       syncFlow();
-      const sc = W.slide_count;
-      const rows = [["Check-in and welcome", "#D2391F", "Before you start"]];
-      if (W.pre_test) rows.push(["Pre-test", "#D2391F", "Start"]);
-      rows.push([sc ? `Your slides (${sc})` : "Your slides", "#2747C8", "Train"]);
-      const flowRows = W.flow.map(f => `<div class="flowrow"><span class="n"></span><span class="sq" style="background:${TOOL[f.tool].color}"></span><b>${esc(TOOL[f.tool].name)}</b><label class="small">After slide <input type="number" min="0" ${sc ? `max="${sc}"` : ""} value="${f.after}" data-after="${f.tool}" aria-label="After slide number for ${esc(TOOL[f.tool].name)}"></label></div>`).join("");
-      const end = [];
-      if (W.tools.has("exit")) end.push(["Exit ticket", "#D2391F", "End"]);
-      if (W.post_test) end.push(["Post-test", "#D2391F", "End"]);
-      if (W.evaluation.mode !== "none") end.push(["Evaluation", "#14161C", "End"]);
-      if (p?.certificates) end.push(["Certificates (programme)", "#F4B400", "Last session only"]);
-      const plain = r => `<div class="flowrow"><span class="n"></span><span class="sq" style="background:${r[1]}"></span><b>${esc(r[0])}</b><span class="small muted">${esc(r[2])}</span></div>`;
+      const sc = W.slide_count, slides = W.files.find(f => f.kind === "slides");
+      const placed = n => W.flow.filter(f => f.after === n);
+      const chip = f => `<button type="button" class="fchip${W.arm === f.tool ? " arm" : ""}" data-arm="${f.tool}" style="--c:${TOOL[f.tool].color}" title="Click, then click a gap to move it">${esc(TOOL[f.tool].name)}</button>`;
+      const gap = n => `<div class="gap${W.arm ? " can" : ""}" data-gap="${n}" role="button" tabindex="${W.arm ? 0 : -1}" aria-label="${n ? "After slide " + n : "Before the first slide"}">${placed(n).map(chip).join("") || `<span class="plus">+</span>`}</div>`;
+      const endItems = [];
+      if (W.tools.has("exit")) endItems.push(["Exit ticket", "#D2391F"]);
+      if (W.post_test) endItems.push(["Post-test", "#D2391F"]);
+      if (W.evaluation.mode !== "none") endItems.push(["Evaluation", "#14161C"]);
+      if (p?.certificates) endItems.push(["Certificates", "#F4B400"]);
+      const fixed = (n, c) => `<span class="fchip fixed" style="--c:${c}">${esc(n)}</span>`;
+      body = W.flow.length || endItems.length ? `<p class="muted" style="max-width:76ch">${W.arm ? `Now click the gap where <b>${esc(TOOL[W.arm].name)}</b> should go.` : "Click an activity, then click the gap between two slides where it should run."} Evaluation and certificates always come at the end.</p>
+        <div class="fstart">${fixed("Check-in and welcome", "#D2391F")}${W.pre_test ? fixed("Pre-test", "#D2391F") : ""}</div>
+        ${sc && slides ? `<div class="carousel" id="carousel">${gap(0)}${Array.from({ length: sc }, (_, k) => `<figure class="cs"><img data-th="${k + 1}" data-path="${esc(slides.path)}" alt="Slide ${k + 1}"><figcaption>${k + 1}</figcaption></figure>${gap(k + 1)}`).join("")}</div>`
+          : `<div class="note warn">No slides yet. <a href="#" data-goto="1">Upload your slides</a> to place activities between them. For now they all run at the start of training.</div><div class="fstart">${W.flow.map(chip).join("")}</div>`}
+        <div class="fstart"><span class="lbl">At the end</span>${endItems.map(([n, c]) => fixed(n, c)).join("") || `<span class="small muted">Nothing fixed at the end.</span>`}</div>`
+        : `<div class="empty"><div><h2>No activities picked</h2><p class="muted">Go back to <a href="#" data-goto="2">Activities</a> to add some, or carry on: Spin the wheel and Share file are always there.</p></div></div>`;
+    } else if (at === 6) {
+      const code = W.attendance_code;
       const warn = [];
-      if (!W.files.some(f => f.kind === "slides")) warn.push(["No slides uploaded", "You can add them later from the session page.", true]);
-      if (W.pre_test || W.post_test) warn.push(["Test questions not added yet", "Added in the assessment phase.", true]);
+      if (!W.files.some(f => f.kind === "slides")) warn.push(["No slides uploaded", "You can add them later.", true]);
+      if (W.pre_test || W.post_test || [...W.tools].some(t => SLOTS.includes(t))) warn.push(["Questions to write", "On the session's Assessments tab after you save, yourself or with AI.", true]);
       if (W.evaluation.mode !== "none") warn.push(["Evaluation ready", "Default form, with your topic and key skill.", false]);
-      body = `<div class="row" style="align-items:flex-start;gap:28px">
-        <div class="flowlist" style="flex:999 1 480px;min-width:0;display:flex;flex-direction:column;gap:10px"><span class="lbl">Activities sit between your slides</span>${rows.map(plain).join("")}${flowRows}${end.map(plain).join("")}
-          <span class="small muted">Set “after slide” to place each activity. 0 means at the start of training. Throw and catch and Share file are available all the time.</span></div>
-        <div style="flex:1 1 280px;display:flex;flex-direction:column;gap:10px"><span class="lbl">Readiness</span>${warn.map(([t, l, w]) => `<div class="note${w ? " warn" : ""}"><b style="display:block">${esc(t)}</b><span class="small muted">${esc(l)}</span></div>`).join("")}</div></div>`;
+      body = `<div class="row" style="align-items:stretch;gap:24px">
+        <div class="wsec" style="flex:1 1 380px;flex-direction:row;align-items:center;gap:20px;flex-wrap:wrap">
+          ${code ? `<div class="qr">${qrSvg(checkinLink(code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Check-in code</span><span class="code">${esc(code)}</span><span class="small" style="word-break:break-all;font-family:var(--mono)">${esc(checkinLink(code))}</span></div>`
+          : `<div style="display:flex;flex-direction:column;gap:8px"><span class="lbl">Check-in</span><b style="font-family:var(--display);font-size:20px">Your check-in code and QR code appear as soon as the session is saved.</b></div>`}</div>
+        <div style="flex:1 1 320px;display:flex;flex-direction:column;gap:10px">
+          <div class="note"><b>${p?.roster_only ? "Only people on the programme's list can check in." : "Anyone with the code can check in."}</b><br><a href="#/people/${esc(W.programme_id)}">Programme participants →</a></div>
+          ${warn.map(([t, l, w]) => `<div class="note${w ? " warn" : ""}"><b style="display:block">${esc(t)}</b><span class="small muted">${esc(l)}</span></div>`).join("")}</div></div>`;
     }
-    V(`<div class="pagehead"><div><span class="lbl">${W.existing ? "Edit session" : "New session"}</span><h1>${esc(STEP_TITLES[at])}</h1></div><a class="btn ghost small" href="${W.existing ? "#/session/" + W.id : "#/sessions"}">Cancel</a></div>
-      <ol class="wsteps" aria-label="Steps">${STEP_NAMES.map((n, i) => `<li><button type="button" data-step="${i}" class="${i < at ? "done" : i === at ? "now" : ""}" ${i === at ? 'aria-current="step"' : ""}><span class="n">0${i + 1}</span><span>${n}</span></button></li>`).join("")}</ol>
+    V(`<div class="pagehead"><div><span class="lbl">${W.existing ? (W.draft ? "Draft session" : "Edit session") : "New session"}</span><h1>${esc(STEPS[at][1])}</h1><span class="wsaved" id="wSaved">${W.restored ? "Picked up where you left off" : ""}</span></div>
+        <div class="row">${W.restored ? `<button class="btn ghost small" type="button" id="wFresh">${W.existing && !W.draft ? "Discard unsaved changes" : "Start over"}</button>` : ""}<a class="btn ghost small" href="${W.existing ? "#/session/" + W.id : "#/sessions"}">Close</a></div></div>
+      <ol class="wsteps" style="--n:${STEPS.length}" aria-label="Steps">${STEPS.map(([n], i) => `<li><button type="button" data-step="${i}" class="${i < at ? "done" : i === at ? "now" : ""}" ${i === at ? 'aria-current="step"' : ""}><span class="n">0${i + 1}</span><span>${n}</span></button></li>`).join("")}</ol>
       ${body}
       <div class="err" id="wErr" role="alert"></div>
-      <div class="wfoot"><button class="btn ghost" type="button" id="wBack" ${at === 0 ? 'style="visibility:hidden"' : ""}>Back</button>
-        <div class="row">${at === 7 ? `<button class="btn ghost" type="button" id="wDraft">Save as draft</button><button class="btn red" type="button" id="wSave">${W.existing ? "Save session" : "Create session"}</button>` : `<button class="btn" type="button" id="wNext">Next: ${STEP_NAMES[at + 1]}</button>`}</div></div>`);
+      <div class="wfoot"><button class="btn ghost" type="button" id="wBack" ${at === 0 ? 'style="visibility:hidden"' : ""}>← Back</button>
+        <div class="row">${at === LAST ? `${!W.existing || W.draft ? `<button class="btn ghost" type="button" id="wDraft">Keep as draft</button>` : ""}<button class="btn red" type="button" id="wSave">${W.existing && !W.draft ? "Save session" : "Create session"}</button>` : `<button class="btn" type="button" id="wNext">Next: ${STEPS[at + 1][0]} →</button>`}</div></div>`);
+    W.restored = false;
     wireWizard();
+    fillThumbs($("view"));
   }
   function go(i) {
     grabStep();
     if (i > W.at) for (let k = W.at; k < i; k++) { const m = checkStep(k); if (m) { W.at = k; drawWizard(); $("wErr").textContent = m; return; } }
-    W.at = Math.max(0, Math.min(7, i)); drawWizard();
+    W.at = Math.max(0, Math.min(LAST, i)); W.arm = null; wizSaveLocal(); drawWizard(); scrollTo({ top: 0 });
+    wizSaveServer();
   }
   function wireWizard() {
     const v = $("view");
     v.querySelectorAll("[data-step]").forEach(b => b.addEventListener("click", () => go(+b.dataset.step)));
+    v.querySelectorAll("[data-goto]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); go(+a.dataset.goto); }));
     $("wBack").addEventListener("click", () => go(W.at - 1));
     $("wNext")?.addEventListener("click", () => go(W.at + 1));
     $("wSave")?.addEventListener("click", () => saveWizard(false));
     $("wDraft")?.addEventListener("click", () => saveWizard(true));
-    v.querySelectorAll("[data-tool]").forEach(b => b.addEventListener("click", () => { const t = b.dataset.tool; W.tools.has(t) ? W.tools.delete(t) : W.tools.add(t); drawWizard(); }));
+    $("wFresh")?.addEventListener("click", () => { const id = W.existing ? W.id : null; wizForget(W.key); W = null; if (id) viewWizard(id); else { location.hash = "#/new"; viewWizard(null); } });
+    v.querySelectorAll("input,select,textarea").forEach(el => el.addEventListener("input", wizChanged));
+    v.querySelectorAll("input[type=checkbox],input[type=radio],select").forEach(el => el.addEventListener("change", wizChanged));
+    v.querySelectorAll("[data-tool]").forEach(b => b.addEventListener("click", () => { grabStep(); const t = b.dataset.tool; W.tools.has(t) ? W.tools.delete(t) : W.tools.add(t); wizSaveLocal(); drawWizard(); wizChanged(); }));
     $("certOn")?.addEventListener("change", async e => {
       const { data, error } = await sb.from("programmes").update({ certificates: e.target.checked }).eq("id", W.programme_id).select().single();
       if (error) { toast(errText(error, "Couldn't change the programme.")); e.target.checked = !e.target.checked; return; }
       progs = progs.map(p => p.id === data.id ? data : p); drawWizard();
     });
+    $("certRule")?.addEventListener("change", async e => {
+      const { data, error } = await sb.from("programmes").update({ cert_rule: e.target.value }).eq("id", W.programme_id).select().single();
+      if (error) return toast(errText(error, "Couldn't save.")); progs = progs.map(p => p.id === data.id ? data : p);
+    });
+    const saveDesign = async d => {
+      const { data, error } = await sb.from("programmes").update({ cert_design: d }).eq("id", W.programme_id).select().single();
+      if (error) { const m = $("certMsg"); if (m) { m.className = "err"; m.textContent = errText(error, "Couldn't save the design.").replace("schema.sql", "schema-8-more.sql"); } return false; }
+      progs = progs.map(p => p.id === data.id ? data : p); drawWizard(); return true;
+    };
+    v.querySelectorAll("[data-tpl]").forEach(b => b.addEventListener("click", () => saveDesign({ template: b.dataset.tpl })));
+    $("certUp")?.addEventListener("change", async e => {
+      const f = e.target.files[0], m = $("certMsg"); if (!f) return;
+      if (f.size > 15 * 1024 * 1024) { m.className = "err"; m.textContent = "Use a file under 15 MB."; return; }
+      m.className = "upmsg"; m.textContent = `Uploading ${f.name}…`;
+      const path = `${profile.id}/programme-${W.programme_id}/certificate-${Date.now()}-${f.name.replace(/[^\w.\-]+/g, "_").slice(-60)}`;
+      const { error } = await sb.storage.from("session-files").upload(path, f, { contentType: f.type });
+      if (error) { m.className = "err"; m.textContent = errText(error, "Couldn't upload."); return; }
+      if (await saveDesign({ template: "upload", upload: path, upload_name: f.name })) toast("Certificate design saved");
+    });
     $("slideIn")?.addEventListener("change", e => upload(e.target.files, "slides"));
     $("shareIn")?.addEventListener("change", e => upload(e.target.files, "share"));
+    $("linkForm")?.addEventListener("submit", e => {
+      e.preventDefault(); const f = e.target; let url = f.url.value.trim();
+      if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
+      try { new URL(url); } catch { $("linkErr").textContent = "Paste a full web address."; return; }
+      const sub = linkKind(url);
+      W.files.push({ kind: "link", url, sub, name: f.title.value.trim() || (sub === "YouTube" ? "YouTube video" : new URL(url).hostname.replace(/^www\./, "")) });
+      wizSaveLocal(); drawWizard(); wizChanged();
+    });
+    v.querySelectorAll("[data-rmlink]").forEach(b => b.addEventListener("click", () => { W.files = W.files.filter(x => !(x.kind === "link" && x.url === b.dataset.rmlink)); wizSaveLocal(); drawWizard(); wizChanged(); }));
     v.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", async () => {
       await sb.storage.from("session-files").remove([b.dataset.rm]);
       const f = W.files.find(x => x.path === b.dataset.rm);
       W.files = W.files.filter(x => x.path !== b.dataset.rm); if (f?.kind === "slides") W.slide_count = 0;
-      drawWizard();
+      wizSaveLocal(); drawWizard(); wizChanged();
+    }));
+    // flow carousel: pick an activity, then a gap
+    v.querySelectorAll("[data-arm]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const g = b.closest("[data-gap]");
+      if (W.arm && W.arm !== b.dataset.arm && g) { g.click(); return; }   // armed: clicking another activity drops it in that gap
+      W.arm = W.arm === b.dataset.arm ? null : b.dataset.arm; drawWizard();
+    }));
+    v.querySelectorAll("[data-gap]").forEach(g => g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); g.click(); } }));
+    v.querySelectorAll("[data-gap]").forEach(g => g.addEventListener("click", () => {
+      if (!W.arm) return; const f = W.flow.find(x => x.tool === W.arm); if (f) f.after = +g.dataset.gap;
+      W.arm = null; W.flow.sort((a, b) => a.after - b.after); wizSaveLocal(); drawWizard(); wizChanged();
     }));
   }
-  async function pdfPages(file) {
-    try {
-      if (!window.pdfjsLib) await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "vendor/pdf.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
-      const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-      return doc.numPages;
-    } catch { return 0; }
+  async function pdfPages(file, path) {
+    try { const doc = await pdfDoc(path, file); return doc.numPages; } catch { return 0; }
   }
   async function upload(list, kind) {
     const files = [...(list || [])]; if (!files.length) return;
-    const msg = $("upMsg") || { set textContent(t) { toast(t); } };
+    const msg = $(kind === "slides" ? "upMsg" : "upMsg2") || { set textContent(t) { toast(t); }, set className(c) {} };
     for (const file of files) {
-      if (file.size > 50 * 1024 * 1024) { msg.textContent = `${file.name} is over 50 MB.`; continue; }
-      msg.textContent = `Uploading ${file.name}…`;
+      if (file.size > 50 * 1024 * 1024) { msg.className = "err"; msg.textContent = `${file.name} is over 50 MB.`; continue; }
+      msg.className = "upmsg busy"; msg.textContent = `Uploading ${file.name}…`;
       const safe = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
       const path = `${profile.id}/${W.id}/${kind}-${Date.now()}-${safe}`;
       const { error } = await sb.storage.from("session-files").upload(path, file, { contentType: file.type || "application/octet-stream" });
-      if (error) { msg.textContent = errText(error, `Couldn't upload ${file.name}.`); continue; }
+      if (error) { msg.className = "err"; msg.textContent = errText(error, `Couldn't upload ${file.name}.`); continue; }
       if (kind === "slides") {
         const old = W.files.filter(f => f.kind === "slides");
         if (old.length) await sb.storage.from("session-files").remove(old.map(f => f.path));
         W.files = W.files.filter(f => f.kind !== "slides");
-        W.slide_count = await pdfPages(file);
+        W.slide_count = await pdfPages(file, path);
       }
       W.files.push({ kind, name: file.name, path, size: file.size, type: file.type });
-      msg.textContent = "";
+      msg.className = "upmsg"; msg.textContent = `Uploaded ${file.name} ✓`;
     }
-    drawWizard();
+    wizSaveLocal(); drawWizard(); wizSaveServer();
   }
   async function saveWizard(asDraft) {
     grabStep();
-    for (let k = 0; k < 8; k++) { const m = checkStep(k); if (m) { W.at = k; drawWizard(); $("wErr").textContent = m; return; } }
+    for (let k = 0; k <= LAST; k++) { const m = checkStep(k); if (m) { W.at = k; drawWizard(); $("wErr").textContent = m; return; } }
     syncFlow();
-    const row = { id: W.id, programme_id: W.programme_id, topic: W.topic, session_date: W.session_date || null, start_time: W.start_time, venue: W.venue, course_lead: W.course_lead,
-      objectives: W.objectives, main_topic: W.main_topic, key_skill: W.key_skill, pre_test: W.pre_test, post_test: W.post_test, tools: [...W.tools],
-      flow: W.flow, evaluation: W.evaluation, files: W.files, slide_count: W.slide_count };
-    if (asDraft) row.status = "draft"; else if (!W.existing || sessions.find(s => s.id === W.id)?.status === "draft") row.status = "ready";
-    $("wErr").textContent = "Saving…";
+    const row = wizRow();
+    if (asDraft) row.status = "draft"; else if (!W.existing || W.draft) row.status = "ready";
+    const e = $("wErr"); e.className = "upmsg"; e.textContent = "Saving…";
     const res = W.existing ? await sb.from("sessions").update(row).eq("id", W.id).select().single() : await sb.from("sessions").insert(row).select().single();
-    if (res.error) { $("wErr").textContent = errText(res.error, "Couldn't save the session."); return; }
+    if (res.error) { e.className = "err"; e.textContent = errText(res.error, "Couldn't save the session."); return; }
     sessions = [...sessions.filter(s => s.id !== res.data.id), res.data].sort((a, b) => (a.session_date || "9999").localeCompare(b.session_date || "9999"));
-    W = null;
-    toast(asDraft ? "Saved as draft" : "Session saved");
+    wizForget(W.key); W = null;
+    toast(asDraft ? "Kept as a draft. Find it under My sessions → Drafts." : "Session saved");
     location.hash = "#/session/" + res.data.id;
   }
   function isLastInProgramme(s) {
@@ -557,7 +690,8 @@
       body = `<div class="grid2">
         <div style="display:flex;flex-direction:column;gap:14px"><span class="lbl">Learning objectives</span>${obj.length ? `<ol style="margin:0;padding-left:20px;display:grid;gap:6px">${obj.map(o => `<li>${esc(o)}</li>`).join("")}</ol>` : `<p class="muted">None added.</p>`}
           <span class="lbl" style="margin-top:8px">For the evaluation</span><p>Main topic: <b>${esc(s.main_topic || "–")}</b><br>Key skill: <b>${esc(s.key_skill || "–")}</b></p></div>
-        <div style="display:flex;flex-direction:column;gap:12px"><span class="lbl">Files</span>${(s.files || []).map(f => `<div class="filerow"><span>${f.kind === "slides" ? "Slides · " : ""}${esc(f.name)}</span><button type="button" style="color:var(--blue)" data-open="${esc(f.path)}">Open</button></div>`).join("") || `<p class="muted">No files yet.</p>`}</div></div>
+        <div style="display:flex;flex-direction:column;gap:12px"><span class="lbl">Files</span>${(s.files || []).map(f => f.kind === "link" ? `<div class="filerow"><span>${f.sub === "YouTube" ? "▶" : "🔗"} ${esc(f.name)}</span><a href="${esc(f.url)}" target="_blank" rel="noopener">Open</a></div>` : `<div class="filerow"><span>${f.kind === "slides" ? `Slides · ${s.slide_count || "?"} slides · ` : "📄 "}${esc(f.name)}</span><button type="button" style="color:var(--blue)" data-open="${esc(f.path)}">Open</button></div>`).join("") || `<p class="muted">No files yet.</p>`}
+          ${(s.files || []).find(f => f.kind === "slides") && s.slide_count ? thumbStrip(s.files.find(f => f.kind === "slides").path, s.slide_count) : ""}</div></div>
         <div class="confirm" style="border-color:var(--line-2)"><b>Delete this session</b><span class="small muted">Removes the session, its files and its results. Type the topic to confirm.</span><div class="row"><input class="in" id="delIn" style="max-width:360px" autocomplete="off" aria-label="Session topic"><button class="btn danger small" type="button" id="delGo">Delete session</button><span class="err" id="delErr"></span></div></div>`;
     } else if (sessTab === "attendance") {
       body = `<div class="row" style="gap:24px;align-items:center;border:1.5px solid var(--ink);padding:22px"><div class="qr">${qrSvg(checkinLink(s.attendance_code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Check-in code</span><span class="code">${esc(s.attendance_code)}</span><span class="small" style="font-family:var(--mono);word-break:break-all">${esc(checkinLink(s.attendance_code))}</span><button class="btn ghost small" type="button" id="copyLink" style="align-self:flex-start">Copy link</button></div></div>
@@ -589,6 +723,7 @@
     if (sessTab === "assess") drawActs(s);
     if (sessTab === "learning") drawLearning(s);
     if (sessTab === "particip") drawParticipation(s);
+    if (sessTab === "details") fillThumbs($("view"));
     $("endRun")?.addEventListener("click", () => {
       const b = $("endRun");
       if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to end for everyone"; setTimeout(() => { if (b.isConnected) { b.dataset.sure = ""; b.textContent = "End session"; } }, 4000); return; }
@@ -980,6 +1115,7 @@
   function goItem(n) {
     if (!P) return;
     const to = Math.max(0, Math.min(P.items.length - 1, n));
+    if (P) P.dir = to >= P.i ? 1 : -1;
     window.TSG?.resetZoom();
     if (to !== P.i || !P.run) stopRun();
     P.i = to;
@@ -997,15 +1133,28 @@
     if (it.t === "welcome") return drawWelcome();
     if (it.t === "slide") {
       if (!P.pdf) { m.innerHTML = `<div class="st-card"><span class="lbl" style="color:var(--yellow)">Slide ${it.n}</span><b>${P.pdfErr ? "Couldn't open your slides." : "Loading your slides…"}</b></div>`; return; }
-      m.innerHTML = `<canvas id="stCanvas" aria-label="Slide ${it.n}"></canvas>`;
-      const n = it.n, token = (P.drawToken = (P.drawToken || 0) + 1);
-      P.pdf.getPage(n).then(page => {
+      // Render the new slide off-screen, then swap it in with the chosen transition.
+      const old = m.querySelector("canvas#stCanvas"), keepOld = old && P.lastSlide !== it.n && !P.redraw;
+      if (!old) m.innerHTML = "";
+      const n = it.n, token = (P.drawToken = (P.drawToken || 0) + 1), redraw = P.redraw; P.redraw = false;
+      P.pdf.getPage(n).then(async page => {
         if (!P || token !== P.drawToken) return;
         const box = m.getBoundingClientRect(), v1 = page.getViewport({ scale: 1 });
         const sc = Math.min(box.width / v1.width, box.height / v1.height), dpr = Math.min(2, window.devicePixelRatio || 1);
-        const vp = page.getViewport({ scale: sc * dpr }), c = $("stCanvas");
+        const vp = page.getViewport({ scale: sc * dpr }), c = document.createElement("canvas");
         c.width = vp.width; c.height = vp.height; c.style.width = vp.width / dpr + "px"; c.style.height = vp.height / dpr + "px";
-        page.render({ canvasContext: c.getContext("2d"), viewport: vp });
+        c.setAttribute("aria-label", "Slide " + n);
+        await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+        if (!P || token !== P.drawToken) return;
+        P.lastSlide = n;
+        const t = trans(), reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        m.querySelectorAll("canvas.leaving").forEach(x => x.remove());
+        const prev = m.querySelector("canvas#stCanvas");
+        if (!prev || !keepOld || redraw || t === "none" || reduced) { m.innerHTML = ""; c.id = "stCanvas"; m.appendChild(c); return; }
+        prev.id = ""; prev.classList.add("leaving"); c.id = "stCanvas"; m.appendChild(c);
+        const dir = P.dir < 0 ? "back" : "fwd";
+        prev.classList.add("tr-out", "t-" + t, dir); c.classList.add("tr-in", "t-" + t, dir);
+        setTimeout(() => { prev.remove(); c.classList.remove("tr-in", "t-" + t, dir); }, t === "morph" ? 900 : 650);
       });
       return;
     }
@@ -1067,21 +1216,21 @@
     return data;
   }
   function openShare() {
-    const files = (P.s.files || []).filter(f => f.kind === "share");
+    const files = (P.s.files || []).filter(f => f.kind === "share" || f.kind === "link");
     const tg = n => `<div class="row"><button class="btn ghost small" type="button" data-sh="${n}" data-t="A">← Group A</button><button class="btn red small" type="button" data-sh="${n}" data-t="all">Everyone</button><button class="btn ghost small" type="button" data-sh="${n}" data-t="B">Group B →</button></div>`;
     $("stShare").innerHTML = `<div class="row" style="justify-content:space-between"><b style="font-family:var(--display);font-size:18px">Share with the room</b><button type="button" class="x" id="shX" aria-label="Close">×</button></div>
       ${P.items[P.i].t === "slide" ? `<div class="shrow"><b>This slide (${P.items[P.i].n})</b>${tg("slide")}</div>` : ""}
-      ${files.map((f, n) => `<div class="shrow"><b>${esc(f.name)}</b>${tg(n)}</div>`).join("") || `<p class="small muted">No files preloaded. Add them on the session's Slides step.</p>`}
-      <span class="err" id="shMsg" role="status"></span>`;
+      ${files.map((f, n) => `<div class="shrow"><b>${f.kind === "link" ? (f.sub === "YouTube" ? "▶ " : "🔗 ") : "📄 "}${esc(f.name)}</b>${tg(n)}</div>`).join("") || `<p class="small muted">No files or links preloaded. Add them on the session's Slides step.</p>`}
+      <span class="upmsg" id="shMsg" role="status"></span>`;
     $("stShare").hidden = false;
     $("shX").onclick = () => ($("stShare").hidden = true);
     $("stShare").querySelectorAll("[data-sh]").forEach(b => b.addEventListener("click", async () => {
       const msg = $("shMsg"); msg.textContent = "Sharing…";
       try {
         if (b.dataset.sh === "slide") await shareSlide(b.dataset.t);
-        else { const f = files[+b.dataset.sh]; await share("file", f.name, await publishFile(f), b.dataset.t); }
-        msg.textContent = `Sent to ${b.dataset.t === "all" ? "everyone" : "Group " + b.dataset.t} ✓`;
-      } catch (e) { msg.textContent = errText(e, "Couldn't share.").replace("schema.sql", "schema-2-participants.sql"); }
+        else { const f = files[+b.dataset.sh]; if (f.kind === "link") await share("link", f.name, f.url, b.dataset.t); else await share("file", f.name, await publishFile(f), b.dataset.t); }
+        msg.className = "upmsg"; msg.textContent = `Sent to ${b.dataset.t === "all" ? "everyone" : "Group " + b.dataset.t} ✓`;
+      } catch (e) { msg.className = "err"; msg.textContent = errText(e, "Couldn't share.").replace("schema.sql", "schema-2-participants.sql"); }
     }));
   }
   async function shareSlide(target) {
@@ -1237,6 +1386,7 @@
     else if (e.key === "w" || e.key === "W") cmd("spin");
     else if (e.key === "b" || e.key === "B" || e.key === ".") cmd("blank");
     else if (e.key === "g" || e.key === "G") $("stGest").click();
+    else if (e.key === "t" || e.key === "T") nextTrans();
     else if (e.key === "h" || e.key === "H") window.TSG?.checkHands();
     else if (e.key === "Escape" && !$("stWheel").hidden) closeWheel();
     else if (e.key === "Escape" && !$("stRemote").hidden) $("stRemote").hidden = true;
@@ -1246,7 +1396,24 @@
   let pokeT = null;
   function poke() { $("stDock").classList.remove("idle"); clearTimeout(pokeT); pokeT = setTimeout(() => $("stDock").classList.add("idle"), 4000); }
   $("stage").addEventListener("mousemove", poke);
-  addEventListener("resize", () => { if (P && P.items[P.i]?.t === "slide") draw(); });
+  addEventListener("resize", () => { if (P && P.items[P.i]?.t === "slide") { P.redraw = true; draw(); } });
+  // transitions between slides: none, fade, slide, zoom or morph (T, or the ✨ button)
+  const TRANS = [["morph", "Morph"], ["zoom", "Zoom"], ["fade", "Fade"], ["slide", "Slide"], ["none", "None"]];
+  function trans() { try { return localStorage.getItem("ts_trans") || "morph"; } catch { return "morph"; } }
+  function showTrans() { $("stTrans").textContent = "✨ " + (TRANS.find(x => x[0] === trans()) || TRANS[0])[1]; }
+  function nextTrans() { const i = TRANS.findIndex(x => x[0] === trans()); try { localStorage.setItem("ts_trans", TRANS[(i + 1) % TRANS.length][0]); } catch {} showTrans(); stFlash("✨ " + TRANS[(i + 1) % TRANS.length][1]); }
+  $("stTrans").addEventListener("click", nextTrans);
+  showTrans();
+  // full screen: the bars hide, and slide back when the mouse reaches the bottom edge (or a tap there)
+  let fsT = null;
+  document.addEventListener("fullscreenchange", () => { const on = !!document.fullscreenElement; $("stage").classList.toggle("fs", on); $("stage").classList.remove("reveal"); $("stage").style.setProperty("--dockh", $("stDock").offsetHeight + "px"); if (P && P.items[P.i]?.t === "slide") setTimeout(() => { P.redraw = true; draw(); }, 150); });
+  const fsReveal = y => {
+    const st = $("stage"); if (!st.classList.contains("fs")) return;
+    if (y > innerHeight - 90) { st.classList.add("reveal"); clearTimeout(fsT); }
+    else if (st.classList.contains("reveal") && y < innerHeight - 200 && y > 70) { clearTimeout(fsT); fsT = setTimeout(() => st.classList.remove("reveal"), 1200); }
+  };
+  $("stage").addEventListener("mousemove", e => fsReveal(e.clientY));
+  $("stage").addEventListener("pointerdown", e => { if (e.pointerType !== "mouse") fsReveal(e.clientY); });
 
 
   // ---------- simple pages ----------
