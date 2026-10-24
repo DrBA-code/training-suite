@@ -3,7 +3,7 @@
 
 alter table public.activities drop constraint if exists activities_kind_check;
 alter table public.activities add constraint activities_kind_check
-  check (kind in ('poll','words','finger','quiz','buzz','battle','order','match','spot','case','exit','test'));
+  check (kind in ('poll','words','finger','scale','feedback','quiz','short','buzz','battle','order','match','spot','case','exit','test'));
 
 -- The room's count for each finger-vote question, saved when the facilitator locks it.
 create table if not exists public.tallies (
