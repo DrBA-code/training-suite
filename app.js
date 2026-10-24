@@ -45,7 +45,7 @@
   // AI runs on the Training Suite server key (supabase/functions/ts-ai). Returns the reply, or { error }.
   async function aiCall(body) {
     try {
-      const { data, error } = await sb.functions.invoke("ts-ai", { body });
+      const { data, error } = await sb.functions.invoke(cfg.AI_FUNCTION || "ts-ai", { body });
       if (error) return { error: /Failed to send|not found|404/i.test(error.message || "") ? "AI isn't switched on for Training Suite yet (the ts-ai server function isn't deployed)." : (error.message || "The AI request failed.") };
       return data || { error: "No reply from the AI." };
     } catch (e) { return { error: (e && e.message) || "The AI request failed." }; }
