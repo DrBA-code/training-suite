@@ -70,6 +70,12 @@
   function qrSvg(t) { if (!window.qrcode) return ""; const q = window.qrcode(0, "M"); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); }
   const checkinLink = code => new URL("checkin/", location.href.split("#")[0]).href + "#" + code;
   const dbHint = e => /does not exist|schema cache|Could not find/i.test((e && e.message) || "");
+  // Save programme settings (certificates) and keep the local list in step.
+  const saveProgramme = id => async patch => {
+    const { data, error } = await sb.from("programmes").update(patch).eq("id", id).select().single();
+    if (error) { toast(errText(error, "Couldn't save.").replace("schema.sql", /cert_rules/.test(error.message || "") ? "schema-11-certificates.sql" : "schema.sql")); return null; }
+    progs = progs.map(x => x.id === data.id ? data : x); return data;
+  };
   const errText = (e, fb) => dbHint(e) ? "The database isn't set up yet: run supabase/schema.sql in Supabase." : (e && e.message) || fb;
 
   // ---------- account ----------
@@ -495,17 +501,10 @@
         <p class="small muted">The evaluation always comes at the end of the session. Editing the questions and your own forms come with the evaluation update.</p></div>`;
     } else if (at === 4) {
       const last = isLastInProgramme({ id: W.id, programme_id: W.programme_id, session_date: W.session_date });
-      const d = p?.cert_design || { template: "classic" };
-      const T = [["classic", "Classic", "Gold frame, serif"], ["modern", "Modern", "Clean, colour band"], ["bold", "Bold", "Big colour blocks"]];
-      const mini = (t) => `<div class="cmini ${t}"><span class="cm-k">Certificate of completion</span><span class="cm-n">Ada Obi</span><span class="cm-p">${esc(p?.name || "Programme")}</span></div>`;
-      body = p ? `<div style="display:flex;flex-direction:column;gap:14px;max-width:900px">
-        <div class="note">Certificates are <b>optional</b> and belong to the <b>programme</b>: they're issued at the end of its last session.</div>
-        <label class="opt"><input type="checkbox" id="certOn" ${p.certificates ? "checked" : ""}><span><b>Issue certificates for “${esc(p.name)}”</b><span class="muted">${p.certificates ? (last ? "They'll be issued at the end of this session (the programme's last, by date)." : "They'll be issued at the end of the programme's last session, not this one.") : "Tick to turn certificates on for the whole programme."}</span></span></label>
-        ${p.certificates ? `<label class="fld" style="max-width:460px">Who qualifies<select id="certRule">${[["completion", "Completion: attended, post-test and evaluation"], ["attendance", "Attendance only"], ["achievement", "Achievement: completion plus a pass mark"]].map(([v, t]) => `<option value="${v}" ${p.cert_rule === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-          <span class="lbl">Design</span>
-          <div class="cpick">${T.map(([id, n, l]) => `<button type="button" class="cpk" data-tpl="${id}" aria-pressed="${!d.upload && d.template === id}">${mini(id)}<b>${n}</b><span class="small muted">${l}</span></button>`).join("")}
-            <label class="cpk up" aria-pressed="${!!d.upload}"><span class="cmini upl">${d.upload ? `✓ ${esc(d.upload_name || "Your design")}` : "⬆ Upload your own design"}</span><b>Your own</b><span class="small muted">PDF or image (A4 landscape). Names are printed on it.</span><input type="file" id="certUp" accept="application/pdf,image/png,image/jpeg" hidden></label></div>
-          <span class="upmsg" id="certMsg" role="status"></span>` : ""}</div>`
+      body = p ? `<div style="display:flex;flex-direction:column;gap:14px">
+        <div class="note" style="max-width:900px">Certificates are <b>optional</b> and belong to the <b>programme</b> (one session or many): they're issued at the end of its last session. Set the design and rules once for “${esc(p.name)}”.</div>
+        <label class="opt" style="max-width:900px"><input type="checkbox" id="certOn" ${p.certificates ? "checked" : ""}><span><b>Issue certificates for “${esc(p.name)}”</b><span class="muted">${p.certificates ? (last ? "They'll be issued at the end of this session (the programme's last, by date)." : "They'll be issued at the end of the programme's last session, not this one.") : "Tick to turn certificates on for the whole programme."}</span></span></label>
+        ${p.certificates ? `<div id="certEd"></div>` : ""}</div>`
         : `<p class="muted">Pick a programme on the first step.</p>`;
     } else if (at === 5) {
       syncFlow();
@@ -573,25 +572,7 @@
       if (error) { toast(errText(error, "Couldn't change the programme.")); e.target.checked = !e.target.checked; return; }
       progs = progs.map(p => p.id === data.id ? data : p); drawWizard();
     });
-    $("certRule")?.addEventListener("change", async e => {
-      const { data, error } = await sb.from("programmes").update({ cert_rule: e.target.value }).eq("id", W.programme_id).select().single();
-      if (error) return toast(errText(error, "Couldn't save.")); progs = progs.map(p => p.id === data.id ? data : p);
-    });
-    const saveDesign = async d => {
-      const { data, error } = await sb.from("programmes").update({ cert_design: d }).eq("id", W.programme_id).select().single();
-      if (error) { const m = $("certMsg"); if (m) { m.className = "err"; m.textContent = errText(error, "Couldn't save the design.").replace("schema.sql", "schema-8-more.sql"); } return false; }
-      progs = progs.map(p => p.id === data.id ? data : p); drawWizard(); return true;
-    };
-    v.querySelectorAll("[data-tpl]").forEach(b => b.addEventListener("click", () => saveDesign({ template: b.dataset.tpl })));
-    $("certUp")?.addEventListener("change", async e => {
-      const f = e.target.files[0], m = $("certMsg"); if (!f) return;
-      if (f.size > 15 * 1024 * 1024) { m.className = "err"; m.textContent = "Use a file under 15 MB."; return; }
-      m.className = "upmsg"; m.textContent = `Uploading ${f.name}…`;
-      const path = `${profile.id}/programme-${W.programme_id}/certificate-${Date.now()}-${f.name.replace(/[^\w.\-]+/g, "_").slice(-60)}`;
-      const { error } = await sb.storage.from("session-files").upload(path, f, { contentType: f.type });
-      if (error) { m.className = "err"; m.textContent = errText(error, "Couldn't upload."); return; }
-      if (await saveDesign({ template: "upload", upload: path, upload_name: f.name })) toast("Certificate design saved");
-    });
+    if ($("certEd")) TSCU.editor($("certEd"), { sb, profile, toast, programme: progs.find(x => x.id === W.programme_id), sessions, save: saveProgramme(W.programme_id) });
     $("slideIn")?.addEventListener("change", e => upload(e.target.files, "slides"));
     $("shareIn")?.addEventListener("change", e => upload(e.target.files, "share"));
     $("linkForm")?.addEventListener("submit", e => {
@@ -715,8 +696,10 @@
       body = `<div id="partBox"><p class="muted">Loading…</p></div>`;
     } else if (sessTab === "evaluation") {
       body = `<div id="evBox"><p class="muted">Loading…</p></div>`;
+    } else if (sessTab === "certs") {
+      body = `<div id="certBox"><p class="muted">Loading…</p></div>`;
     } else {
-      const M = { certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
+      const M = { report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
     }
     V(`<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
@@ -732,6 +715,7 @@
     if (sessTab === "learning") drawLearning(s);
     if (sessTab === "particip") drawParticipation(s);
     if (sessTab === "evaluation") drawEvaluation(s);
+    if (sessTab === "certs" && p.id) TSCU.tab($("certBox"), { sb, profile, toast, errText, programme: p, sessions, session: s, save: saveProgramme(p.id), notify: () => notifyCerts(p.id) });
     if (sessTab === "details") fillThumbs($("view"));
     $("endRun")?.addEventListener("click", () => {
       const b = $("endRun");
@@ -758,6 +742,13 @@
     });
   }
 
+  // Tell phones in the programme's sessions that certificates changed.
+  function notifyCerts(programmeId) {
+    sessions.filter(x => x.programme_id === programmeId && x.attendance_code && x.status !== "draft").forEach(x => {
+      const ch = sb.channel("ts-" + x.attendance_code, { config: { broadcast: { self: false } } });
+      ch.subscribe(st => { if (st === "SUBSCRIBED") { ch.send({ type: "broadcast", event: "certs", payload: {} }); setTimeout(() => (sb.removeChannel ? sb.removeChannel(ch) : ch.unsubscribe?.()), 1500); } });
+    });
+  }
   // End a session for everyone: phones show their summary; the programme completes after its last session.
   async function endSession(s) {
     const { data, error } = await sb.rpc("end_session", { p_session: s.id });
@@ -765,7 +756,9 @@
     const ch = sb.channel("ts-" + s.attendance_code, { config: { broadcast: { self: false } } });
     ch.subscribe(st => { if (st === "SUBSCRIBED") { ch.send({ type: "broadcast", event: "ended", payload: {} }); setTimeout(() => (sb.removeChannel ? sb.removeChannel(ch) : ch.unsubscribe?.()), 1500); } });
     await loadData();
-    toast(data?.programme_completed ? "Session ended. That was the last one: the programme is completed." : "Session ended. The room is closed on every phone.");
+    const pr = progs.find(x => x.id === s.programme_id);
+    toast(data?.programme_completed ? (pr?.certificates ? "Programme completed. Review who qualifies and issue the certificates." : "Session ended. That was the last one: the programme is completed.") : "Session ended. The room is closed on every phone.");
+    if (data?.programme_completed && pr?.certificates) { sessTab = "certs"; location.hash = "#/session/" + s.id; }
     if (location.hash === "#/session/" + s.id) viewSession(s.id);
   }
 
@@ -1267,6 +1260,13 @@
     const slot = slotOfItem(it);
     if (slot) return drawActivity(it, slot);
     if (it.t === "card" && it.key === "evaluation") return drawEvalCard();
+    if (it.t === "card" && it.key === "certificates") {
+      m.innerHTML = `<div class="st-card"><span class="sq" style="background:#F4B400"></span><span class="lbl" style="color:var(--sacc)">Certificates</span><b>Is your name right?</b>
+        <span>Your phone shows your name as it will be printed. Tap <b>Correct</b>, or fix it now. Certificates are issued when the programme ends, and you download yours from your phone.</span>
+        <button class="btn red" type="button" id="stNames" style="align-self:flex-start;margin-top:8px">📱 Ask phones to check names</button></div>`;
+      $("stNames").onclick = () => { P.channel?.send({ type: "broadcast", event: "namecheck", payload: {} }); toast("Sent: every phone shows the name check."); };
+      return;
+    }
     const tool = it.t === "tool" ? TOOL[it.tool] : null, card = CARD[it.key] || [it.label, ""];
     m.innerHTML = `<div class="st-card"><span class="sq" style="background:${tool ? tool.color : it.key === "certificates" ? "#F4B400" : "#D2391F"}"></span><span class="lbl" style="color:var(--sacc)">${tool ? "Activity" : "Next up"}</span><b>${esc(tool ? tool.name : card[0])}</b><span>${esc(tool ? tool.line : card[1])}</span><span class="soon">This runs live on phones in the next update of Training Suite.</span></div>`;
   }

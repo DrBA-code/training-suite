@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#FFFFFF">
+<title>Check a certificate · Training Suite</title>
+<link rel="icon" href="../assets/icon-64.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@1,600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body{background:#F6F7F4}
+  .v{max-width:620px;margin:0 auto;padding:calc(22px + env(safe-area-inset-top,0px)) 18px 60px;display:flex;flex-direction:column;gap:20px}
+  .vtop{display:flex;align-items:center;gap:10px;font-weight:800}
+  .vcard{background:#fff;border-radius:22px;padding:26px;box-shadow:0 1px 2px rgba(16,24,40,.06),0 14px 40px rgba(16,24,40,.08);display:flex;flex-direction:column;gap:14px}
+  .vstat{display:flex;align-items:center;gap:12px;font-family:var(--display);font-size:26px;font-weight:800;line-height:1.1}
+  .vstat i{font-style:normal;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:24px;flex:none;color:#fff}
+  .ok i{background:#1E8A4C} .ok{color:#1E6B3E} .bad i{background:#B3261E} .bad{color:#B3261E} .old i{background:#9A7417} .old{color:#7A5C10}
+  .vname{font-family:var(--serif);font-style:italic;font-weight:600;font-size:clamp(28px,7vw,38px);line-height:1.15}
+  .vrow{display:grid;grid-template-columns:130px 1fr;gap:6px 14px;font-size:15px}
+  .vrow dt{color:var(--muted)} .vrow dd{margin:0;font-weight:600}
+  .vform{display:flex;gap:10px;flex-wrap:wrap} .vform input{flex:1;min-width:200px;font-family:var(--mono);text-transform:uppercase}
+  @media (max-width:480px){.vrow{grid-template-columns:1fr}.vrow dd{margin-bottom:6px}}
+</style>
+</head>
+<body>
+<main class="v">
+  <div class="vtop"><img src="../assets/logo.png" alt="" width="30" height="32"> Training Suite</div>
+  <h1 style="font-size:clamp(28px,7vw,36px);font-weight:800">Check a certificate</h1>
+  <div id="out" aria-live="polite"></div>
+  <form class="vform" id="f" novalidate><label class="sr" for="num">Certificate number</label><input class="in" id="num" placeholder="TS-2026-XXXXXX" autocomplete="off" spellcheck="false"><button class="btn red" type="submit">Check</button></form>
+  <p class="small muted">Every Training Suite certificate has a number and a QR code. Scanning the code, or typing the number here, shows whether it is genuine.</p>
+</main>
+<script src="../config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="../certificate.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id), esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const cfg = window.TS_CONFIG || {}, sb = window.supabase && cfg.SUPABASE_URL ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  async function check(n) {
+    n = String(n || "").trim().toUpperCase(); if (!n) { $("out").innerHTML = ""; return; }
+    $("num").value = n; $("out").innerHTML = `<div class="vcard"><span class="muted">Checking ${esc(n)}…</span></div>`;
+    if (!sb) { $("out").innerHTML = `<div class="vcard"><span class="err">Can't reach Training Suite. Check the internet connection.</span></div>`; return; }
+    const { data, error } = await sb.rpc("verify_certificate", { p_number: n });
+    if (error) { $("out").innerHTML = `<div class="vcard"><span class="err">Couldn't check right now. Try again.</span></div>`; return; }
+    if (!data) { $("out").innerHTML = `<div class="vcard"><div class="vstat bad"><i>✕</i>Not found</div><p>No certificate has the number <b>${esc(n)}</b>. Check the number, or ask the issuing organisation.</p></div>`; return; }
+    const st = data.status === "valid" ? ["ok", "✓", "Genuine and valid"] : data.status === "revoked" ? ["bad", "✕", "Revoked"] : ["old", "↻", "Replaced by a newer certificate"];
+    const dates = TSC.datesText(data);
+    $("out").innerHTML = `<div class="vcard"><div class="vstat ${st[0]}"><i>${st[1]}</i>${st[2]}</div>
+      ${data.status === "revoked" && data.reason ? `<p><b>Reason:</b> ${esc(data.reason)}</p>` : ""}
+      ${data.status === "replaced" && data.replaced_by ? `<p>The current certificate is <a href="#${esc(data.replaced_by)}"><b>${esc(data.replaced_by)}</b></a>.</p>` : ""}
+      <span class="lbl">${esc(TSC.titleOf({ title: data.title, kind: data.kind || "completion" }))}</span><span class="vname">${esc(data.name)}</span>
+      <dl class="vrow"><dt>Programme</dt><dd>${esc(data.programme)}</dd>${dates ? `<dt>Dates</dt><dd>${esc(dates)}</dd>` : ""}${data.venue ? `<dt>Venue</dt><dd>${esc(data.venue)}</dd>` : ""}
+        ${data.org ? `<dt>Issued by</dt><dd>${esc(data.org)}</dd>` : ""}${(data.signatories || []).length ? `<dt>Signed by</dt><dd>${data.signatories.map(s => esc(s.name) + (s.title ? `, <span class="muted" style="font-weight:500">${esc(s.title)}</span>` : "")).join("<br>")}</dd>` : ""}
+        <dt>Issued on</dt><dd>${esc(TSC.dmy(data.issued_at))}</dd><dt>Number</dt><dd style="font-family:var(--mono)">${esc(data.number)}</dd></dl></div>`;
+  }
+  $("f").addEventListener("submit", e => { e.preventDefault(); const n = $("num").value.trim().toUpperCase(); if (location.hash.slice(1) === n) check(n); else location.hash = n; });
+  window.addEventListener("hashchange", () => check(decodeURIComponent(location.hash.slice(1))));
+  check(decodeURIComponent(location.hash.slice(1)));
+})();
+</script>
+</body>
+</html>

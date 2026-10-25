@@ -149,7 +149,7 @@
     $("rName").textContent = fullName(me.title, me.name);
     $("rPh").innerHTML = me.photo ? `<img src="${esc(me.photo)}" alt="">` : esc(initials(me.name));
     $("rIn").textContent = me.arrived_at ? "Checked in at " + fmtTime(me.arrived_at) : "";
-    loadTime();
+    loadTime(); loadCert();
     pickGroup(group);
     await loadItems(); render(false);
     if (channel) return;
@@ -158,6 +158,8 @@
     channel.on("broadcast", { event: "ended" }, () => sessionEnded());
     channel.on("broadcast", { event: "feedback" }, () => loadFeedback(true));
     channel.on("broadcast", { event: "eval" }, () => loadEval(true));
+    channel.on("broadcast", { event: "certs" }, () => loadCert(true));
+    channel.on("broadcast", { event: "namecheck" }, () => loadCert(true, true));
     channel.on("broadcast", { event: "picked" }, ({ payload }) => {
       if (!payload || !(me.participant ? payload.participant === me.participant : payload.name === me.name)) return;
       $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">Spin the wheel</span><b style="font-family:var(--display);font-size:34px;line-height:1.05">🎯 You've been picked!</b><p class="muted">Over to you, ${esc(String(me.name || "").split(" ")[0])}.</p><button class="btn red" type="button" id="flyOk">OK</button>`;
@@ -416,6 +418,68 @@
     box.hidden = false;
   }
 
+  // ---------- certificate: check the name, then download ----------
+  let CERT = null;
+  async function loadCert(fresh, ask) {
+    if (!me || !window.TSC) return;
+    const { data, error } = await sb.rpc("my_certificate", { p_code: code, p_token: me.token });
+    const box = $("certCard");
+    if (error || !data || !data.on) { box.hidden = true; return; }
+    const had = CERT && CERT.cert; CERT = data;
+    const nm = fullName(data.title, data.name);
+    box.classList.toggle("got", !!data.cert);
+    if (data.cert) {
+      box.innerHTML = `<span class="lbl" style="color:#9A7417">🎓 Your certificate</span><canvas id="certCv" aria-label="Your certificate"></canvas>
+        <div class="row"><button class="btn red" type="button" id="certDl">Download PDF</button><a class="small" href="${esc(TSC.verifyUrl(data.cert.number))}" target="_blank" rel="noopener">Check it: ${esc(data.cert.number)}</a></div>
+        <span class="err" id="certErr" role="alert"></span>`;
+      box.hidden = false;
+      const w = Math.round((box.clientWidth || 340) * Math.min(2, window.devicePixelRatio || 1));
+      TSC.render(data.cert.design, TSC.dataOf(data.cert), w).then(c => { const cv = $("certCv"); if (!cv) return; cv.width = c.width; cv.height = c.height; cv.getContext("2d").drawImage(c, 0, 0); });
+      $("certDl").onclick = async () => {
+        const b = $("certDl"); b.disabled = true; b.textContent = "Making your PDF…";
+        try { await TSC.pdf([{ design: data.cert.design, data: TSC.dataOf(data.cert) }], `${TSC.fileName(data.cert.name)} - certificate.pdf`); sb.rpc("cert_downloaded", { p_code: code, p_token: me.token }); }
+        catch (e) { $("certErr").textContent = e.message || "Couldn't make the PDF. Try again."; }
+        b.disabled = false; b.textContent = "Download PDF";
+      };
+      if (fresh && !had) { buzz([40, 60, 40, 60, 160]); box.classList.add("pulse"); box.scrollIntoView({ behavior: "smooth", block: "center" }); }
+      return;
+    }
+    if (!data.last_session) { box.hidden = true; return; }
+    if (data.confirmed && !ask) {
+      box.innerHTML = `<span class="lbl" style="color:#9A7417">🎓 Certificate</span><span>Name confirmed: <b>${esc(nm)}</b>. Your certificate is issued when the programme ends, and you download it here.</span>
+        <button class="btn ghost small" type="button" id="certFix" style="align-self:flex-start">Change the name</button>`;
+      box.hidden = false; $("certFix").onclick = () => nameForm(data); return;
+    }
+    box.innerHTML = `<span class="lbl" style="color:#9A7417">🎓 Your name on the certificate</span><span class="nm">${esc(nm)}</span>
+      <span class="small muted">Check the spelling and your title. This is exactly how it will be printed.</span>
+      <div class="row"><button class="btn red" type="button" id="certOk">✓ Correct</button><button class="btn ghost" type="button" id="certFix">Fix it</button></div><span class="err" id="certErr" role="alert"></span>`;
+    box.hidden = false;
+    if (ask) { box.classList.remove("pulse"); void box.offsetWidth; box.classList.add("pulse"); buzz([30, 40, 60]); box.scrollIntoView({ behavior: "smooth", block: "center" }); }
+    $("certOk").onclick = () => saveName(data.title, data.name);
+    $("certFix").onclick = () => nameForm(data);
+  }
+  function nameForm(data) {
+    const box = $("certCard");
+    box.innerHTML = `<span class="lbl" style="color:#9A7417">🎓 Fix your name</span>
+      <div class="titles" id="cTitles">${TITLES.map(t => `<input type="radio" name="ctitle" id="ct_${t}" value="${t}" ${data.title === t ? "checked" : ""}><label for="ct_${t}">${t}</label>`).join("")}</div>
+      <label class="fld" for="cName">Full name<input id="cName" value="${esc(data.name)}" autocomplete="name"></label>
+      <div class="certprev"><span>On your certificate</span><b id="cPrev">${esc(fullName(data.title, data.name))}</b></div>
+      <div class="row"><button class="btn red" type="button" id="cSave">Save name</button><button class="btn ghost" type="button" id="cCancel">Cancel</button></div><span class="err" id="certErr" role="alert"></span>`;
+    const pv = () => { $("cPrev").textContent = fullName(document.querySelector("input[name=ctitle]:checked")?.value || "", $("cName").value.trim().replace(/\s+/g, " ")); };
+    $("cName").addEventListener("input", pv); $("cTitles").addEventListener("change", pv); $("cName").focus();
+    $("cCancel").onclick = () => loadCert();
+    $("cSave").onclick = () => saveName(document.querySelector("input[name=ctitle]:checked")?.value || "", $("cName").value);
+  }
+  async function saveName(title, name) {
+    name = String(name || "").trim().replace(/\s+/g, " ");
+    if (name.length < 3) return ($("certErr").textContent = "Enter your full name.");
+    const { data, error } = await sb.rpc("confirm_cert_name", { p_code: code, p_token: me.token, p_title: title, p_name: name });
+    if (error) return ($("certErr").textContent = /issued|full name/i.test(error.message) ? error.message : "Couldn't save. Check the connection and try again.");
+    me.title = data.title; me.name = data.name; $("rName").textContent = fullName(me.title, me.name);
+    const st = store.get("ts_me_" + sess.pkey); if (st) store.set("ts_me_" + sess.pkey, { ...st, title: data.title, name: data.name });
+    buzz(30); loadCert();
+  }
+
   // ---------- tap out ----------
   $("outBtn").addEventListener("click", async () => {
     const b = $("outBtn");
@@ -468,7 +532,7 @@
       ${d.spent_seconds != null ? `<div class="pp"><div><span class="small">Time in the session</span><b>${hm(d.spent_seconds)}</b></div><div><span class="small">Time away</span><b>${hm(d.away_seconds || 0)}</b></div></div>` : ""}
       <span class="small" style="color:#C9CEC6">Your items stay on this page${sess.closes_at ? " until " + new Date(sess.closes_at).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" }) : ""}.</span>`;
     $("nowTxt").textContent = "The session has ended";
-    loadLearning(); loadPart(); loadEval(true); buzz([30, 40, 60]);
+    loadLearning(); loadPart(); loadEval(true); loadCert(); buzz([30, 40, 60]);
   }
 
   boot();

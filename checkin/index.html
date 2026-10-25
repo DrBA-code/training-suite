@@ -8,11 +8,18 @@
 <link rel="icon" href="../assets/icon-64.png" type="image/png">
 <link rel="apple-touch-icon" href="../assets/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@1,400;1,600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400;1,600&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="../styles.css">
 <style>
   /* Participant's phone: check in once, then this page becomes their session room. */
   body{background:#fff}
+  .certcard{border:1.5px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px;background:#FFFBEF}
+  .certcard.got{background:#fff;border-color:#E8D9A8;box-shadow:0 10px 28px rgba(184,144,47,.16)}
+  .certcard canvas{width:100%;height:auto;border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.08),0 6px 18px rgba(0,0,0,.1);display:block}
+  .certcard .nm{font-family:var(--serif);font-style:italic;font-weight:600;font-size:28px;line-height:1.15}
+  .certcard .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .certcard.pulse{animation:certpulse 1.2s ease 2}
+  @keyframes certpulse{50%{box-shadow:0 0 0 6px rgba(244,180,0,.45)}}
   .choice{display:flex;gap:14px;align-items:center;text-align:left;width:100%;padding:18px;border:1.5px solid var(--line-2);border-radius:16px;background:#fff;cursor:pointer;font:inherit;color:inherit}
   .choice:hover,.choice:focus-visible{border-color:var(--ink);background:var(--sage)}
   .choice i{font-style:normal;flex:none;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:800;background:var(--sage);color:var(--ink)}
@@ -209,6 +216,7 @@
     <div class="fld"><span>Your group <span class="hint" style="display:inline">(if the facilitator gave you one)</span></span>
       <div class="groups" id="groups" role="group" aria-label="Your group"><button type="button" data-g="A">Group A</button><button type="button" data-g="all">No group</button><button type="button" data-g="B">Group B</button></div></div>
     <div class="learn" id="endBox" hidden></div>
+    <div class="certcard" id="certCard" hidden aria-live="polite"></div>
     <div class="evcard" id="evCard" hidden></div>
     <div class="act" id="act" hidden aria-live="polite"></div>
     <div class="learn" id="learn" hidden></div>
@@ -233,7 +241,9 @@
 
 <script src="../config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script src="../evaluation.js"></script>
+<script src="../certificate.js"></script>
 <script src="checkin.js"></script>
 </body>
 </html>
