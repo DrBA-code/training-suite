@@ -197,7 +197,7 @@
   // ---------- dashboard ----------
   const openFolds = { perf: true };
   let dash = null;   // dashboard numbers (dashboard_stats)
-  function viewDashboard() {
+  function viewDashboard(refresh = true) {
     const hour = new Date().getHours();
     const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const first = (profile.full_name || "").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(" ")[0];
@@ -206,16 +206,18 @@
     const upcoming = sessions.filter(s => s.status === "ready" || s.status === "live").sort((a, b) => String(a.session_date || "9999").localeCompare(String(b.session_date || "9999")));
     const next = live || upcoming.filter(s => !s.session_date || s.session_date >= today())[0] || upcoming[0];
     const D = dash || {};
+    const rts = (D.ratings || []).filter(x => x.rating != null), rN = rts.reduce((a, x) => a + x.n, 0);
+    const rating = rN ? rts.reduce((a, x) => a + x.rating * x.n, 0) / rN : null;
     const num = (v, suf = "") => v == null ? "–" : `${Number(v).toLocaleString()}${suf ? `<small>${suf}</small>` : ""}`;
     const hero = `<section class="dcard d-hero">
       <span class="eyebrow">${live ? "A session is live" : "Your training desk"}</span>
       <h1>${greet}${first ? `, <em>${esc(first)}</em>` : ""}.</h1>
-      <p>${live ? `“${esc(live.topic)}” is running now.` : next ? `Next up: “${esc(next.topic)}”, ${esc(fmtDate(next.session_date))}${next.start_time ? " at " + esc(next.start_time) : ""}.` : progs.length ? "No sessions scheduled. Add one to a programme to get going." : "Create a programme, then add your first session to it."}</p>
+      <p>${sessions.length} session${sessions.length === 1 ? "" : "s"} · ${done} completed · ${upcoming.length} to run.<br>${live ? `“${esc(live.topic)}” is running now.` : next ? `Next up: “${esc(next.topic)}”, ${esc(fmtDate(next.session_date))}${next.start_time ? " at " + esc(next.start_time) : ""}.` : progs.length ? "No sessions scheduled. Add one to a programme to get going." : "Create a programme, then add your first session to it."}</p>
       <div class="row">${live ? `<a class="btn yellow" href="#/present/${live.id}">Back to the live screen <span class="arr">↗</span></a>` : next ? `<a class="btn yellow" href="#/session/${next.id}">Open next session <span class="arr">↗</span></a>` : ""}
         <a class="btn ${next || live ? "ghost" : "yellow"}" href="${progs.length ? "#/new" : "#/programmes?new=1"}">${progs.length ? "+ New session" : "+ Create a programme"}</a></div>
 </section>`;
     const stats = `
-      <div class="dcard d-stat"><span class="eyebrow">Sessions</span><b>${sessions.length}</b><span class="sub">${done} completed · ${upcoming.length} to run</span></div>
+      <div class="dcard d-stat"><span class="eyebrow">Participant rating</span><b>${rating == null ? "–" : rating.toFixed(1)}<small>/5</small></b><span class="sub">${rating == null ? "From session evaluations" : `${"★".repeat(Math.round(rating))}${"☆".repeat(5 - Math.round(rating))} · ${rN} evaluation${rN === 1 ? "" : "s"}`}</span></div>
       <div class="dcard d-stat yellow"><span class="eyebrow">People trained</span><b>${num(D.people)}</b><span class="sub">${D.checkins != null ? `${Number(D.checkins).toLocaleString()} check-ins across ${progs.length} programme${progs.length === 1 ? "" : "s"}` : "From your registers"}</span></div>
       <div class="dcard d-stat blue"><span class="eyebrow">Learning achievement</span><b>${num(D.achievement, "%")}</b><span class="sub">Average, from pre and post tests</span></div>
       <div class="dcard d-stat red"><span class="eyebrow">Participation</span><b>${num(D.participation, "%")}</b><span class="sub">${D.runs ? `Across ${D.runs} activities run` : "Of activities run, on average"}</span></div>`;
@@ -242,10 +244,14 @@
     const analytics = `<div class="d-analytics"><span class="eyebrow" style="background:var(--canvas)">Analytics</span>
       ${fold("perf", "Programmes by learning achievement", progPerf.length ? progPerf.map(([p, v]) => barRow(p.name, v, "var(--blue)", "#/programmes")).join("") : later)}
       ${fold("sess", "Sessions by learning achievement and participation", sessPerf.length ? sessPerf.map(([x, d]) => `<div style="display:flex;flex-direction:column;gap:6px"><b style="font-size:14px">${esc(x.topic)}</b>${d.achievement != null ? barRow("Learning achievement", +d.achievement, "var(--blue)", "#/session/" + x.id) : ""}${d.participation != null ? barRow("Participation", +d.participation, "var(--red)", "#/session/" + x.id) : ""}</div>`).join("") : later)}
-      ${fold("rate", "Participant ratings", `<p class="muted">Comes with session evaluations (step 5 on the roadmap).</p>`)}</div>`;
+      ${fold("rate", "Participant ratings", rts.length ? rts.map(x => { const ss = sessions.find(y => y.id === x.id); return ss ? barRow(`${ss.topic} (${x.n})`, (x.rating - 1) / 4 * 100, "var(--yellow)", "#/session/" + ss.id).replace(/<b style="text-align:right">\d+%<\/b>/, `<b style="text-align:right">${(+x.rating).toFixed(1)}★</b>`) : ""; }).join("") : later)}</div>`;
     V(`<div class="dash">${hero}${stats}${nextCard}${toolsCard}${progCard}${analytics}</div>`);
-    $("view").querySelectorAll("[data-fold]").forEach(b => b.addEventListener("click", () => { openFolds[b.dataset.fold] = !openFolds[b.dataset.fold]; viewDashboard(); }));
-    if (!dash) sb.rpc("dashboard_stats").then(({ data }) => { if (data) { dash = data; if (/^#\/dashboard|^#?\/?$/.test(location.hash)) viewDashboard(); } });
+    $("view").querySelectorAll("[data-fold]").forEach(b => b.addEventListener("click", () => { openFolds[b.dataset.fold] = !openFolds[b.dataset.fold]; viewDashboard(false); }));
+    if (refresh) Promise.all([sb.rpc("dashboard_stats"), sb.rpc("dashboard_ratings")]).then(([a, b]) => {
+      if (!a.data) return; const next = { ...a.data, ratings: b.data || [] };
+      if (JSON.stringify(next) === JSON.stringify(dash)) return;
+      dash = next; if (/^#\/dashboard|^#?\/?$/.test(location.hash)) viewDashboard(false);
+    });
   }
 
   // ---------- programmes ----------
@@ -707,8 +713,10 @@
       body = `<div id="learnBox"><p class="muted">Loading…</p></div>`;
     } else if (sessTab === "particip") {
       body = `<div id="partBox"><p class="muted">Loading…</p></div>`;
+    } else if (sessTab === "evaluation") {
+      body = `<div id="evBox"><p class="muted">Loading…</p></div>`;
     } else {
-      const M = { evaluation: "Reaction and learning scores, per-item results and an AI summary of comments. Collapsed sections, like the dashboard.", certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
+      const M = { certs: "Who qualifies, who has downloaded theirs, and reissue or revoke.", report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
     }
     V(`<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
@@ -723,6 +731,7 @@
     if (sessTab === "assess") drawActs(s);
     if (sessTab === "learning") drawLearning(s);
     if (sessTab === "particip") drawParticipation(s);
+    if (sessTab === "evaluation") drawEvaluation(s);
     if (sessTab === "details") fillThumbs($("view"));
     $("endRun")?.addEventListener("click", () => {
       const b = $("endRun");
@@ -972,6 +981,95 @@
     csvDownload(`${a.title} - ${s.topic}`, rows);
   }
 
+  // ---------- session evaluation (Evaluation tab, live card, form editor) ----------
+  const starTxt = v => v == null ? "–" : (Math.round(v * 10) / 10).toFixed(1);
+  async function drawEvaluation(s, editing) {
+    const box = $("evBox"); if (!box) return;
+    const ev = s.evaluation || {};
+    if (ev.mode === "none" && !editing) { box.innerHTML = `<div class="empty"><div><h2>No evaluation for this session</h2><p class="muted">Turn it on in <a href="#/edit/${s.id}">Edit</a> → Evaluation.</p></div></div>`; return; }
+    const items = TSE.formFor(s, ev);
+    if (editing) return drawEvalEditor(s, items);
+    const { data, error } = await sb.rpc("session_evaluation", { p_session: s.id });
+    if (error) { box.innerHTML = `<p class="note warn">${esc(errText(error, "Couldn't load.").replace("schema.sql", "schema-9-evaluation.sql"))}</p>`; return; }
+    const rows = data?.rows || [], R = TSE.score(items, rows);
+    const bars = i => `<div class="evrow"><span class="evt">${esc(i.text)}</span><span class="evdist">${i.dist.map((n, k) => `<i title="${TSE.SCALES[i.type][k]}: ${n}" style="flex:${n || 0.001};background:${["#D2391F", "#F0A35E", "#C9CEC6", "#7FB8E6", "#2747C8"][k]}"></i>`).join("")}</span><b>${i.avg == null ? "–" : i.avg.toFixed(1)}</b></div>`;
+    const sec = (k, t) => { const list = R.per.filter(i => i.sec === k); return list.length ? `<section class="fold" data-open="1"><div class="body" style="padding-top:18px"><h3 style="font-size:18px">${t}</h3>${list.map(bars).join("")}</div></section>` : ""; };
+    box.innerHTML = `<div class="row" style="justify-content:space-between"><p class="muted" style="max-width:70ch">${R.count} of ${data.attendees} participants have filled it${data.anonymous ? " · anonymous" : ""}. ${data.open ? "Open on phones now." : "Phones get it when you open it on the live screen, at tap-out, and when the session ends."}</p>
+        <div class="row"><button class="btn ghost small" type="button" id="evEdit">Edit the questions</button>${rows.length ? `<button class="btn small" type="button" id="evCsv">Download (Excel/CSV)</button>` : ""}</div></div>
+      <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+        <div class="tile" style="--c:var(--yellow)"><span class="lbl">Overall rating</span><b>${starTxt(R.overall)}<small style="font-size:.4em"> / 5</small></b><span>${R.overall == null ? "No ratings yet" : "★".repeat(Math.round(R.overall)) + "☆".repeat(5 - Math.round(R.overall))}</span></div>
+        <div class="tile" style="--c:var(--blue)"><span class="lbl">Reaction (level 1)</span><b>${R.reaction == null ? "–" : R.reaction + "%"}</b><span>How the session went</span></div>
+        <div class="tile" style="--c:var(--red)"><span class="lbl">Learning (level 2)</span><b>${R.learning == null ? "–" : R.learning + "%"}</b><span>Can do it and confident to apply</span></div>
+        <div class="tile" style="--c:var(--ink)"><span class="lbl">Knowledge, before → after</span><b>${R.before == null ? "–" : R.before.toFixed(1)} → ${R.after == null ? "–" : R.after.toFixed(1)}</b><span>Out of 5, self-rated</span></div></div>
+      ${rows.length ? `${sec("reaction", "How the session went")}${sec("learning", "What they learned")}${sec("other", "Your questions")}
+        <section class="fold" data-open="1"><div class="body" style="padding-top:18px"><div class="d-head"><h3 style="font-size:18px">In their own words</h3><button class="btn small" type="button" id="evAI">✨ Summarise with AI</button></div><div id="evAIout"></div>
+          ${R.texts.map(t => `<h4 class="evh4">${esc(t.text)} <span class="muted small">(${t.answers.length})</span></h4><div class="evcomments">${t.answers.map(a => `<blockquote>${esc(a.t)}${a.name ? `<cite>${esc(a.name)}</cite>` : ""}</blockquote>`).join("") || `<p class="muted small">No answers yet.</p>`}</div>`).join("")}</div></section>`
+        : `<div class="empty"><div><h2>No answers yet</h2><p class="muted">Open the evaluation on the live screen when you reach it in your flow. Phones also get it at tap-out and when the session ends.</p></div></div>`}`;
+    $("evEdit").onclick = () => drawEvaluation(s, true);
+    if ($("evCsv")) $("evCsv").onclick = () => csvDownload(`Evaluation - ${s.topic}`, [["Session", s.topic], ["Date", s.session_date || ""], ["Responses", R.count], ["Overall rating (out of 5)", starTxt(R.overall)], ["Reaction %", R.reaction ?? ""], ["Learning %", R.learning ?? ""], [],
+      [...(data.anonymous ? [] : ["Name"]), "Submitted", ...items.map(i => i.text)], ...rows.map(r => [...(data.anonymous ? [] : [r.name]), new Date(r.at).toLocaleString(), ...items.map(i => r.answers?.[i.id] ?? "")])]);
+    if ($("evAI")) $("evAI").onclick = async () => {
+      const b = $("evAI"); b.disabled = true; b.textContent = "✨ Reading the comments…";
+      const r = await aiCall({ task: "eval_summary", session_id: s.id });
+      b.disabled = false; b.textContent = "✨ Summarise with AI";
+      if (!r || r.error) { $("evAIout").innerHTML = `<p class="err">${esc((r && r.error) || "AI couldn't summarise.")}</p>`; return; }
+      $("evAIout").innerHTML = `<div class="evai"><p><b>${esc(r.summary || "")}</b></p>${(r.strengths || []).length ? `<p class="small"><b>Strengths:</b> ${r.strengths.map(esc).join(" · ")}</p>` : ""}${(r.improve || []).length ? `<p class="small"><b>To improve:</b> ${r.improve.map(esc).join(" · ")}</p>` : ""}</div>`;
+    };
+  }
+  function drawEvalEditor(s, items) {
+    const box = $("evBox"); let list = structuredClone(items);
+    const draw = () => {
+      box.innerHTML = `<div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Edit the evaluation questions</h2><div class="row"><button class="btn ghost small" type="button" id="eeReset">Back to the default 17</button></div></div>
+        <p class="muted small">Change the wording, the answer type, or add your own questions. The overall star rating feeds your dashboard.</p>
+        <div class="eelist">${list.map((i, k) => `<div class="eerow"><span class="n">${k + 1}</span><input class="in" data-k="${k}" data-f="text" value="${esc(i.text)}" aria-label="Question ${k + 1}"><select class="in" data-k="${k}" data-f="type" aria-label="Answer type">${Object.entries(TSE.TYPES).map(([v, t]) => `<option value="${v}" ${i.type === v ? "selected" : ""}>${t}</option>`).join("")}</select><button class="x" type="button" data-del="${k}" aria-label="Remove question ${k + 1}">×</button></div>`).join("")}</div>
+        <div class="row"><button class="btn ghost small" type="button" id="eeAdd">+ Add a question</button></div>
+        <div class="wfoot"><button class="btn ghost" type="button" id="eeCancel">Cancel</button><div class="row"><span class="err" id="eeErr"></span><button class="btn red" type="button" id="eeSave">Save questions</button></div></div>`;
+      box.querySelectorAll("[data-f]").forEach(el => el.addEventListener("input", () => { list[+el.dataset.k][el.dataset.f] = el.value; }));
+      box.querySelectorAll("[data-f=type]").forEach(el => el.addEventListener("change", () => { list[+el.dataset.k].type = el.value; }));
+      box.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => { list.splice(+b.dataset.del, 1); draw(); }));
+      $("eeAdd").onclick = () => { list.push({ id: "q" + Date.now().toString(36), sec: "other", type: "agree", text: "" }); draw(); box.querySelector(".eerow:last-child input")?.focus(); };
+      $("eeReset").onclick = () => { list = TSE.defaultForm(s); draw(); };
+      $("eeCancel").onclick = () => drawEvaluation(s);
+      $("eeSave").onclick = async () => {
+        list = list.map(i => ({ ...i, text: String(i.text || "").trim() })).filter(i => i.text);
+        if (!list.length) return ($("eeErr").textContent = "Keep at least one question.");
+        const isDefault = JSON.stringify(list) === JSON.stringify(TSE.defaultForm(s));
+        const evaluation = { ...(s.evaluation || { mode: "default", anonymous: true, at_tapout: true }), mode: (s.evaluation || {}).mode === "none" ? "default" : ((s.evaluation || {}).mode || "default") };
+        if (isDefault) delete evaluation.items; else evaluation.items = list;
+        const { data, error } = await sb.from("sessions").update({ evaluation }).eq("id", s.id).select().single();
+        if (error) return ($("eeErr").textContent = errText(error, "Couldn't save."));
+        sessions = sessions.map(x => x.id === s.id ? data : x); toast("Evaluation questions saved"); drawEvaluation(data);
+      };
+    };
+    draw();
+  }
+  // live screen card
+  function drawEvalCard() {
+    const m = $("stMain"), on = !!P.s.eval_open, ev = P.s.evaluation || {};
+    m.innerHTML = `<div class="st-card"><span class="sq" style="background:#14161C"></span><span class="lbl" style="color:var(--sacc)">Session evaluation</span><b>How did it go?</b>
+      <span>Fill the evaluation on your phone. About 2 minutes${ev.anonymous !== false ? ", and it's anonymous" : ""}.</span>
+      <div class="evlive"><span class="ring" id="evRing" style="--p:0"><b id="evN">0</b></span><span id="evOf" class="st-mono">of ${P.roll.filter(r => !r.left_at).length || 0} done</span></div>
+      <div class="row">${on ? `<button class="key big" type="button" id="evClose">Close the evaluation</button>` : `<button class="key next big" type="button" id="stStart">▶ Open on phones</button>`}</div></div>`;
+    $("stStart")?.addEventListener("click", () => setEvalOpen(true));
+    $("evClose")?.addEventListener("click", () => setEvalOpen(false));
+    evalCount();
+  }
+  async function setEvalOpen(on) {
+    const { error } = await sb.rpc("set_eval_open", { p_session: P.s.id, p_open: on });
+    if (error) return toast(errText(error, "Couldn't open the evaluation.").replace("schema.sql", "schema-9-evaluation.sql"));
+    P.s = { ...P.s, eval_open: on }; sessions = sessions.map(x => x.id === P.s.id ? { ...x, eval_open: on } : x);
+    if (on) P.channel?.send({ type: "broadcast", event: "eval", payload: {} });
+    if (P.items[P.i]?.key === "evaluation") drawEvalCard();
+  }
+  async function evalCount() {
+    if (!P || P.items[P.i]?.key !== "evaluation") return;
+    const { data } = await sb.rpc("eval_count", { p_session: P.s.id });
+    if (!data || !$("evN")) return;
+    const total = Math.max(data.attendees || 0, 1);
+    $("evN").textContent = data.done; $("evOf").textContent = `of ${data.attendees} done`;
+    $("evRing").style.setProperty("--p", Math.round(data.done / total * 100));
+  }
+
   // ---------- participation ranking (Participation tab) ----------
   async function drawParticipation(s) {
     const box = $("partBox"); if (!box) return;
@@ -1058,6 +1156,7 @@
     P.channel.on("presence", { event: "sync" }, () => { if (!P) return; P.phones = Object.keys(P.channel.presenceState()).filter(k => !k.startsWith("presenter-")).length; counts(); });
     P.channel.on("broadcast", { event: "checkin" }, () => refreshRoll(true));
     P.channel.on("broadcast", { event: "answered" }, () => P?.run?.onAnswered());
+    P.channel.on("broadcast", { event: "evaluated" }, () => evalCount());
     P.channel.subscribe(st => { if (st === "SUBSCRIBED") sayNow(); });
     P.nowTimer = setInterval(sayNow, 10000);
     P.remoteTimer = setInterval(() => remoteState(), 3000);
@@ -1167,6 +1266,7 @@
     }
     const slot = slotOfItem(it);
     if (slot) return drawActivity(it, slot);
+    if (it.t === "card" && it.key === "evaluation") return drawEvalCard();
     const tool = it.t === "tool" ? TOOL[it.tool] : null, card = CARD[it.key] || [it.label, ""];
     m.innerHTML = `<div class="st-card"><span class="sq" style="background:${tool ? tool.color : it.key === "certificates" ? "#F4B400" : "#D2391F"}"></span><span class="lbl" style="color:var(--sacc)">${tool ? "Activity" : "Next up"}</span><b>${esc(tool ? tool.name : card[0])}</b><span>${esc(tool ? tool.line : card[1])}</span><span class="soon">This runs live on phones in the next update of Training Suite.</span></div>`;
   }

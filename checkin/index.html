@@ -108,6 +108,26 @@
   .learn .pp div{background:#22252E;padding:10px 12px}
   .learn .pp b{display:block;font-family:var(--display);font-size:28px}
   .learn .bar{height:10px;background:#22252E}.learn .bar i{display:block;height:100%;background:var(--yellow)}
+  .evcard{border:2px solid var(--red);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px;animation:land .6s ease-out}
+  .evcard.done{border-color:#2E9E6B}
+  .evcard b{font-family:var(--display);font-size:21px;line-height:1.2}
+  #evalSec .evhead h2{font-size:26px;font-weight:800;line-height:1.15}
+  .evgrp{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:16px}
+  .evgrp legend{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .evq{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:14px;background:#FAFAF7;border:1.5px solid transparent}
+  .evq.miss{border-color:var(--red)}
+  .evq p{font-weight:600;font-size:16px;line-height:1.35}
+  .evscale{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+  .evscale button{border:1.5px solid var(--line-2);background:#fff;border-radius:12px;padding:8px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;font:inherit;color:var(--ink)}
+  .evscale button b{font-family:var(--display);font-size:20px}
+  .evscale button span{font-size:10px;line-height:1.15;color:var(--muted);text-align:center}
+  .evscale button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .evscale button.on span{color:#d9dce2}
+  .evstars{display:flex;gap:4px}
+  .evstars button{font-size:40px;line-height:1;background:none;border:0;color:var(--line-2);cursor:pointer;padding:2px}
+  .evstars button.on{color:var(--yellow)}
+  .evq textarea{width:100%;padding:10px;border:1.5px solid var(--line-2);border-radius:12px;font:inherit}
+  .evfoot{display:flex;flex-direction:column;gap:10px;padding-bottom:20px}
   .fb{background:#FFF6D6;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px;animation:land .6s ease-out}
   .fb .fbi{background:#fff;border-radius:14px;padding:12px 14px}
   .fb .fbi small{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
@@ -165,6 +185,7 @@
     <div class="fld"><span>Your group <span class="hint" style="display:inline">(if the facilitator gave you one)</span></span>
       <div class="groups" id="groups" role="group" aria-label="Your group"><button type="button" data-g="A">Group A</button><button type="button" data-g="all">No group</button><button type="button" data-g="B">Group B</button></div></div>
     <div class="learn" id="endBox" hidden></div>
+    <div class="evcard" id="evCard" hidden></div>
     <div class="act" id="act" hidden aria-live="polite"></div>
     <div class="learn" id="learn" hidden></div>
     <div class="part" id="part" hidden></div>
@@ -173,6 +194,7 @@
     <div style="display:flex;flex-direction:column;gap:10px"><h2 style="font-size:20px">My items</h2><div class="items" id="items"></div></div>
   </section>
 
+  <section id="evalSec" hidden style="display:flex;flex-direction:column;gap:18px"></section>
   <section id="bye" class="bye" hidden>
     <img src="../assets/logo.png" alt="" width="60" height="64">
     <h1><span lang="yo">Ó dàbọ̀</span> · Goodbye</h1>
@@ -187,6 +209,7 @@
 
 <script src="../config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="../evaluation.js"></script>
 <script src="checkin.js"></script>
 </body>
 </html>

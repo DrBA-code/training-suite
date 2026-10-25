@@ -106,3 +106,16 @@ Run `supabase/schema-8-more.sql` once (after schema-7).
 - One **Share** button: this slide, files and links.
 - Activity screens show instructions for the room ("Vote on your phone…"), not notes for the facilitator.
 - Morph now makes a different camera move each time: push into a point, pull back, swing, drift or spin.
+
+## Step 5: session evaluation
+
+Run `supabase/schema-9-evaluation.sql` once (after updates-5-to-8). Re-deploy the AI function (smart-handler) with the latest `index.ts` for the AI comment summary.
+
+- **Default form:** 17 items (Kirkpatrick levels 1 and 2). It is filled in with the facilitator's name, the main topic and the key skill. Anonymous by default.
+- **Phones get it** when you press **▶ Open on phones** on the flow's Evaluation card, when someone taps out (if "Ask at tap-out" is on), and when you end the session. The live card counts how many are done.
+- **Evaluation tab:**
+  - overall stars, reaction % (level 1), learning % (level 2), and knowledge before and after
+  - results for each question, and the comments
+  - ✨ AI summary of the comments, and a CSV download
+  - **Edit the questions**: change the wording or answer type, add your own, or go back to the default
+- **Dashboard:** the Participant rating tile and the ratings section use the overall stars.

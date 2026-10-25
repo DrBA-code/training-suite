@@ -123,6 +123,18 @@ Return ONLY JSON:
       await db.from("ai_reviews").upsert({ activity_id: act.id, run, step, session_id: act.session_id, result, created_at: new Date().toISOString() });
       return reply(result);
     }
+    if (task === "eval_summary") {
+      const { data: sess } = await db.from("sessions").select("id, owner_id, topic").eq("id", body.session_id).single();
+      if (!sess || sess.owner_id !== user.id) return fail("This isn't your session.");
+      const { data: evs } = await db.from("evaluations").select("answers").eq("session_id", sess.id).limit(500);
+      const comments = (evs || []).flatMap((e) => Object.entries(e.answers || {}).filter(([, v]) => typeof v === "string" && v.trim()).map(([k, v]) => `[${k}] ${String(v).slice(0, 600).replace(/\s+/g, " ")}`));
+      if (!comments.length) return fail("There are no written comments to summarise yet.");
+      const system = "You summarise training evaluation comments for a facilitator. Be fair, specific and concise. Return only JSON.";
+      const user_ = `Session: ${sess.topic}\nComments (question id in brackets; "best" = most useful thing learned, "improve" = what could be improved):\n${comments.slice(0, 400).join("\n")}\n\nReturn ONLY: {"summary":"2 or 3 sentences","strengths":["up to 4 short points"],"improve":["up to 4 short, practical points"]}`;
+      const { data, usage } = await claude(system, user_, 1200);
+      await log(usage);
+      return reply({ summary: data.summary || "", strengths: data.strengths || [], improve: data.improve || [] });
+    }
     return fail("Unknown AI task.");
   } catch (e) {
     return fail((e as Error).message || "The AI request failed. Try again.");

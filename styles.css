@@ -735,3 +735,24 @@ table.t tbody tr:last-child td{border-bottom:0}
 @keyframes mSpinOut{to{transform:rotate(-14deg) scale(.6);opacity:0;filter:blur(6px)}}
 @keyframes mSpinIn{from{transform:rotate(12deg) scale(1.5);opacity:0;filter:blur(8px)}to{transform:none;opacity:1;filter:none}}
 .stage.fs .st-main:not(:has(> canvas)){padding:3vh 3vw}
+
+/* ---------- evaluation ---------- */
+.evrow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 44px;gap:14px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14.5px}
+.evdist{display:flex;height:16px;border-radius:999px;overflow:hidden;background:var(--canvas)}
+.evdist i{display:block;min-width:0}
+.evrow b{text-align:right;font-family:var(--display);font-size:18px}
+.evh4{font-size:15px;margin:16px 0 8px;font-family:var(--body);font-weight:700}
+.evcomments{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.evcomments blockquote{margin:0;background:var(--canvas);border-radius:14px;padding:12px 14px;font-size:15px;line-height:1.45}
+.evcomments cite{display:block;font-style:normal;font-size:12px;color:var(--muted);margin-top:6px}
+.evai{background:#FFF6D6;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.eelist{display:flex;flex-direction:column;gap:8px}
+.eerow{display:grid;grid-template-columns:28px minmax(0,1fr) 220px 34px;gap:8px;align-items:center}
+.eerow .n{font-family:var(--mono);font-size:13px;color:var(--faint)}
+.eerow .in{border-radius:12px;padding:10px 12px;border:1.5px solid var(--line-2);font:inherit;width:100%}
+.eerow .x{width:34px;height:34px;border-radius:50%;border:1px solid var(--line-2);background:#fff;cursor:pointer}
+@media (max-width:700px){.eerow{grid-template-columns:24px 1fr}.eerow select,.eerow .x{grid-column:2}}
+.evlive{display:flex;align-items:center;gap:16px}
+.evlive .ring{--p:0;width:120px;height:120px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--red) calc(var(--p) * 1%),var(--spanel) 0);position:relative}
+.evlive .ring:before{content:"";position:absolute;inset:12px;border-radius:50%;background:var(--sbg)}
+.evlive .ring b{position:relative;font-family:var(--display);font-size:40px;font-weight:800;color:var(--sstrong)}

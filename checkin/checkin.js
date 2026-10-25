@@ -21,7 +21,7 @@
   const missingFn = e => /Could not find the function|does not exist|schema cache/i.test((e && e.message) || "");
   const hm = sec => { if (sec == null) return "–"; const m = Math.floor(sec / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
   const SERVER_SAYS = /valid email|full name|ended|not valid|registered|this phone/i;
-  const show = which => ["again", "form", "room", "bye"].forEach(id => ($(id).hidden = id !== which));
+  const show = which => ["again", "form", "room", "bye", "evalSec"].forEach(id => ($(id).hidden = id !== which));
   const note = t => { $("note").hidden = !t; $("note").textContent = t || ""; };
 
   // ---------- start ----------
@@ -131,6 +131,7 @@
     channel.on("broadcast", { event: "live" }, () => refreshLive());
     channel.on("broadcast", { event: "ended" }, () => sessionEnded());
     channel.on("broadcast", { event: "feedback" }, () => loadFeedback(true));
+    channel.on("broadcast", { event: "eval" }, () => loadEval(true));
     channel.on("broadcast", { event: "picked" }, ({ payload }) => {
       if (!payload || !(me.participant ? payload.participant === me.participant : payload.name === me.name)) return;
       $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">Spin the wheel</span><b style="font-family:var(--display);font-size:34px;line-height:1.05">🎯 You've been picked!</b><p class="muted">Over to you, ${esc(String(me.name || "").split(" ")[0])}.</p><button class="btn red" type="button" id="flyOk">OK</button>`;
@@ -153,7 +154,7 @@
     document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await loadItems(); render(false); refreshLive(true); } });
     setInterval(() => { if (!document.hidden && !$("room").hidden) refreshLive(); }, 5000);
     setInterval(() => { if (!document.hidden) loadTime(); }, 60000);
-    refreshLive(true); loadLearning(); loadPart(); loadFeedback(false);
+    refreshLive(true); loadLearning(); loadPart(); loadFeedback(false); loadEval(false);
     if (sess.ended) sessionEnded();
   }
   async function loadItems() {
@@ -300,6 +301,55 @@
     return head + (mine ? mineView(c, q, mine) : "");
   }
 
+  // ---------- session evaluation ----------
+  let EV = null, evThen = false;
+  async function loadEval(fresh) {
+    if (!me) return;
+    const { data } = await sb.rpc("my_evaluation", { p_code: code, p_token: me.token });
+    EV = data || null;
+    const box = $("evCard");
+    if (!EV || EV.mode === "none" || (!EV.open && !EV.done)) { box.hidden = true; return; }
+    box.innerHTML = EV.done ? `<span class="lbl">Session evaluation</span><b>✓ Sent. Thank you!</b><span class="small muted">Your answers help make the next session better.</span>`
+      : `<span class="lbl" style="color:var(--red)">Session evaluation</span><b>How did this session go for you?</b><span class="small muted">About 2 minutes${EV.anonymous ? " · anonymous: your name is not shown to the facilitator" : ""}.</span><button class="btn red" type="button" id="evGo">Start the evaluation</button>`;
+    box.classList.toggle("done", !!EV.done); box.hidden = false;
+    $("evGo")?.addEventListener("click", () => openEval(false));
+    if (fresh && !EV.done) { buzz([30, 40, 60]); box.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  }
+  function openEval(thenTapOut) {
+    evThen = thenTapOut;
+    const items = TSE.formFor(EV, EV), groups = {};
+    items.forEach(i => (groups[i.sec] = groups[i.sec] || []).push(i));
+    const scale = i => i.type === "stars"
+      ? `<div class="evstars" role="radiogroup" aria-label="${esc(i.text)}">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-ev="${esc(i.id)}" data-v="${n}" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}</div>`
+      : `<div class="evscale" role="radiogroup" aria-label="${esc(i.text)}">${TSE.SCALES[i.type].map((l, k) => `<button type="button" data-ev="${esc(i.id)}" data-v="${k + 1}"><b>${k + 1}</b><span>${esc(l)}</span></button>`).join("")}</div>`;
+    $("evalSec").innerHTML = `<div class="evhead"><span class="lbl" style="color:var(--red)">Session evaluation</span><h2>${esc(sess.topic)}</h2>
+        <p class="muted small">${thenTapOut ? "Before you go: about 2 minutes. " : ""}${EV.anonymous ? "Anonymous: the facilitator sees the results, not your name." : "Your name is shown with your answers."}</p></div>
+      ${Object.entries(groups).map(([sec, list]) => `<fieldset class="evgrp"><legend>${esc(TSE.SEC[sec] || TSE.SEC.other)}</legend>${list.map(i => `<div class="evq" data-q="${esc(i.id)}"><p>${esc(i.text)}</p>${i.type === "text" ? `<textarea data-evt="${esc(i.id)}" rows="3" maxlength="800" placeholder="Optional"></textarea>` : scale(i)}</div>`).join("")}</fieldset>`).join("")}
+      <div class="err" id="evErr" role="alert"></div>
+      <div class="evfoot"><button class="btn red" type="button" id="evSend">${thenTapOut ? "Send and tap out" : "Send my evaluation"}</button><button class="btn ghost" type="button" id="evSkip">${thenTapOut ? "Skip and tap out" : "Not now"}</button></div>`;
+    const ans = {};
+    $("evalSec").querySelectorAll("[data-ev]").forEach(b => b.addEventListener("click", () => {
+      ans[b.dataset.ev] = +b.dataset.v;
+      b.parentNode.querySelectorAll("button").forEach(x => x.classList.toggle("on", b.parentNode.classList.contains("evstars") ? +x.dataset.v <= +b.dataset.v : x === b));
+      b.closest(".evq").classList.remove("miss");
+    }));
+    $("evSkip").addEventListener("click", () => { show("room"); $("dock").hidden = ended; if (evThen) doTapOut(); });
+    $("evSend").addEventListener("click", async () => {
+      $("evalSec").querySelectorAll("[data-evt]").forEach(t => { if (t.value.trim()) ans[t.dataset.evt] = t.value.trim(); });
+      const missing = items.filter(i => i.type !== "text" && !ans[i.id]);
+      if (missing.length) { missing.forEach(i => $("evalSec").querySelector(`[data-q="${CSS.escape(i.id)}"]`)?.classList.add("miss")); $("evErr").textContent = `Answer ${missing.length === 1 ? "the question" : "the " + missing.length + " questions"} marked in red.`; $("evalSec").querySelector(".evq.miss")?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+      $("evSend").disabled = true; $("evErr").textContent = "";
+      const { error } = await sb.rpc("submit_evaluation", { p_code: code, p_token: me.token, p_answers: ans });
+      $("evSend").disabled = false;
+      if (error) { $("evErr").textContent = "Couldn't send. Check the connection and try again."; return; }
+      channel?.send({ type: "broadcast", event: "evaluated", payload: {} });
+      EV.done = true; buzz([30, 40, 60]);
+      show("room"); $("dock").hidden = ended; loadEval(false); scrollTo({ top: 0 });
+      if (evThen) doTapOut();
+    });
+    show("evalSec"); $("dock").hidden = true; scrollTo({ top: 0 });
+  }
+
   // ---------- AI feedback on case study answers ----------
   async function loadFeedback(fresh) {
     if (!me) return;
@@ -344,14 +394,20 @@
   $("outBtn").addEventListener("click", async () => {
     const b = $("outBtn");
     if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to tap out"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Tap out"; }, 4000); return; }
-    b.disabled = true;
+    b.dataset.sure = ""; b.textContent = "Tap out";
+    // Ask for the evaluation first, if the facilitator wants it at tap-out and it isn't done yet.
+    if (EV && EV.mode !== "none" && EV.at_tapout && !EV.done) { openEval(true); return; }
+    doTapOut();
+  });
+  async function doTapOut() {
+    const b = $("outBtn"); b.disabled = true;
     const { error } = await sb.rpc("tap_out", { p_code: code, p_token: me.token });
     b.disabled = false; b.dataset.sure = ""; b.textContent = "Tap out";
     if (error && !/Already/.test(error.message)) return note("Couldn't tap you out. Check the connection and try again.");
     channel?.send({ type: "broadcast", event: "checkin", payload: {} });
     store.set("ts_in_" + code, null);
     $("dock").hidden = true; show("bye"); buzz(40); loadTime();
-  });
+  }
   $("byeRoom").addEventListener("click", () => { show("room"); });
   $("byeBack").addEventListener("click", async () => {
     $("byeErr").textContent = "Checking you back in…";
@@ -386,7 +442,7 @@
       ${d.spent_seconds != null ? `<div class="pp"><div><span class="small">Time in the session</span><b>${hm(d.spent_seconds)}</b></div><div><span class="small">Time away</span><b>${hm(d.away_seconds || 0)}</b></div></div>` : ""}
       <span class="small" style="color:#C9CEC6">Your items stay on this page${sess.closes_at ? " until " + new Date(sess.closes_at).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" }) : ""}.</span>`;
     $("nowTxt").textContent = "The session has ended";
-    loadLearning(); loadPart(); buzz([30, 40, 60]);
+    loadLearning(); loadPart(); loadEval(true); buzz([30, 40, 60]);
   }
 
   boot();
