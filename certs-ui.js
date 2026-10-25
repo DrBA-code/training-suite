@@ -112,6 +112,9 @@ window.TSCU = (() => {
         <label class="fld">Issuing organisation<input id="cedOrg" value="${esc(d.org)}" placeholder="e.g. Public Service Staff Development Centre"></label>
         <div class="row ced-assets"><span class="lbl" style="min-width:60px">Logo</span>${d.logo ? `<span class="ced-img"><img src="${esc(d.logo)}" alt="Logo"></span>` : `<span class="small muted">No logo yet.</span>`}
           <label class="btn ghost small">${d.logo ? "Replace" : "Upload logo"}<input type="file" id="cedLogo" accept="image/png,image/jpeg,image/svg+xml" hidden></label>${d.logo ? `<button class="btn ghost small" type="button" id="cedLogoRm">Remove</button>` : ""}</div>
+        <div class="row ced-assets"><span class="lbl" style="min-width:60px">Second logo</span>${d.logo2 ? `<span class="ced-img"><img src="${esc(d.logo2)}" alt="Second logo"></span>` : `<span class="small muted">Optional, e.g. a partner or the State.</span>`}
+          <label class="btn ghost small">${d.logo2 ? "Replace" : "Upload"}<input type="file" id="cedLogo2" accept="image/png,image/jpeg,image/svg+xml" hidden></label>${d.logo2 ? `<button class="btn ghost small" type="button" id="cedLogo2Rm">Remove</button>` : ""}</div>
+        ${d.template === "ribbon" ? `<label class="opt"><input type="checkbox" id="cedSeal" ${d.seal !== false ? "checked" : ""}><span><b>Gold seal</b><span class="muted">The rosette beside the signatures.</span></span></label>` : ""}
         ${sig(0)}${sig(1)}
         <fieldset class="ced-sig"><legend>Who qualifies</legend>
           <div class="grid2"><label class="fld">Sessions attended<span class="hint">Share of the programme's sessions.</span><span class="row"><input id="rA" type="number" min="1" max="100" value="${r.attend_pct}" style="width:90px"> %</span></label>
@@ -171,6 +174,12 @@ window.TSCU = (() => {
         const c = await fileToCanvas(f, 900); d.logo = await putAsset(ctx, p.id, trim(c) || c, "logo"); changed(true); msg("Logo added ✓");
       }));
       $("#cedLogoRm")?.addEventListener("click", () => { d.logo = ""; changed(true); });
+      $("#cedLogo2").addEventListener("change", e => withBusy("Uploading the logo…", async () => {
+        const f = e.target.files[0]; if (!f) return;
+        const c = await fileToCanvas(f, 900); d.logo2 = await putAsset(ctx, p.id, trim(c) || c, "logo"); changed(true); msg("Second logo added ✓");
+      }));
+      $("#cedLogo2Rm")?.addEventListener("click", () => { d.logo2 = ""; changed(true); });
+      $("#cedSeal")?.addEventListener("change", e => { d.seal = e.target.checked; changed(); });
       box.querySelectorAll("[data-sgup]").forEach(i => i.addEventListener("change", e => withBusy("Uploading the signature…", async () => {
         const f = e.target.files[0]; if (!f) return;
         const c = clearWhite(await fileToCanvas(f, 1200)); if (!c) throw new Error("No signature found in that picture.");
