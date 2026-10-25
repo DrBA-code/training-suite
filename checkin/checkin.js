@@ -21,7 +21,7 @@
   const missingFn = e => /Could not find the function|does not exist|schema cache/i.test((e && e.message) || "");
   const hm = sec => { if (sec == null) return "–"; const m = Math.floor(sec / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
   const SERVER_SAYS = /valid email|full name|ended|not valid|registered|this phone/i;
-  const show = which => ["again", "form", "room", "bye", "evalSec"].forEach(id => ($(id).hidden = id !== which));
+  const show = which => ["start", "back", "again", "form", "room", "bye", "evalSec"].forEach(id => ($(id).hidden = id !== which));
   const note = t => { $("note").hidden = !t; $("note").textContent = t || ""; };
 
   // ---------- start ----------
@@ -40,10 +40,34 @@
     const here = store.get("ts_in_" + code), mine = store.get("ts_me_" + sess.pkey);
     if (here && mine) { me = { ...mine, arrived_at: here.arrived_at }; return openRoom(); }
     if (sess.ended && mine) { me = { ...mine }; return openRoom(); }
+    if (sess.ended) { $("bNew").hidden = true; $("bEmail").previousElementSibling.textContent = "This session has ended. If you were here, use the email you checked in with to see your summary, evaluation and results."; return showBack(); }
     if (!sess.open) return note("This session has ended. Check-in is closed.");
     if (mine) { $("aName").textContent = fullName(mine.title, mine.name); $("aPh").innerHTML = mine.photo ? `<img src="${esc(mine.photo)}" alt="">` : esc(initials(mine.name)); return show("again"); }
-    openForm();
+    show("start");
   }
+
+  // ---------- new here, or back in? ----------
+  function showBack() { stopCam(); show("back"); $("bErr").textContent = ""; setTimeout(() => $("bEmail").focus(), 50); }
+  $("sBack").addEventListener("click", showBack);
+  $("sNew").addEventListener("click", openForm);
+  $("fBack").addEventListener("click", () => { const e = $("fEmail").value.trim(); if (e && !$("bEmail").value) $("bEmail").value = e; showBack(); });
+  $("bNew").addEventListener("click", () => { const e = $("bEmail").value.trim(); if (e && !$("fEmail").value) $("fEmail").value = e; openForm(); });
+  // Only the email: the same person, the same record, the same photo.
+  $("back").addEventListener("submit", async e => {
+    e.preventDefault();
+    const email = $("bEmail").value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return ($("bErr").textContent = "Enter a valid email address.");
+    $("bErr").textContent = "Finding you…"; $("bGo").disabled = true;
+    const { data, error } = await sb.rpc("rejoin", { p_code: code, p_email: email, p_device: DEV });
+    $("bGo").disabled = false;
+    if (error) return ($("bErr").textContent = missingFn(error) ? "Getting back in by email isn't switched on yet. Tap I'm new here and use the same email." : /find that email|haven't checked in|ended|this phone|valid/i.test(error.message) ? error.message : "Couldn't get you back in. Check the connection and try again.");
+    if (data.ended) {
+      me = { token: data.token, participant: data.participant, title: data.title, name: data.name, organisation: data.organisation, photo: data.photo, arrived_at: data.arrived_at };
+      store.set("ts_me_" + sess.pkey, { token: data.token, participant: data.participant, title: data.title, name: data.name, organisation: data.organisation, photo: data.photo });
+      return openRoom();
+    }
+    done(data);
+  });
 
   // ---------- one tap for returning people ----------
   $("aGo").addEventListener("click", async () => {
@@ -54,7 +78,7 @@
     if (error || !data) { $("aErr").textContent = ""; return openForm(); }
     done(data);
   });
-  $("aNot").addEventListener("click", openForm);
+  $("aNot").addEventListener("click", () => show("start"));
 
   // ---------- the form ----------
   TITLES.forEach(t => $("titles").insertAdjacentHTML("beforeend", `<input type="radio" name="title" id="t_${t}" value="${t}"><label for="t_${t}">${t}</label>`));
@@ -64,8 +88,10 @@
   }
   $("fName").addEventListener("input", preview); $("titles").addEventListener("change", preview);
   let stream = null, picked = null;
+  const stopCam = () => { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } };
   async function openForm() {
     show("form");
+    if (stream) return;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
       const v = $("video"); v.srcObject = stream; v.hidden = false; $("guide").removeAttribute("hidden"); $("camMsg").hidden = true; await v.play().catch(() => {});

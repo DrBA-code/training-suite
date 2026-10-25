@@ -802,7 +802,7 @@
       t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>In</th><th>Away</th><th>Out</th><th>Time spent</th><th></th></tr></thead><tbody>${rows.map((r, i) => {
         const d = dupOf(r);
         return `<tr><td>${i + 1}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td>
-          <td><b>${esc(pName(r))}</b>${isDup(r) ? `<br><span class="flag">Possible duplicate</span>` : ""}</td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td>
+          <td><b>${esc(pName(r))}</b>${isDup(r) ? `<br><span class="flag">Possible duplicate</span>` : ""}${(r.rejoins || []).length ? `<br><small class="muted" title="${esc(r.rejoins.map(fmtT).join(", "))}">↩ Back in by email ${r.rejoins.length > 1 ? r.rejoins.length + " times" : "at " + fmtT(r.rejoins[0])}</small>` : ""}</td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td>
           <td>${fmtT(r.arrived_at)}</td><td>${r.away_seconds || r.left_at ? `<span title="${esc(away(r))}">${hm(r.away_seconds)}</span><br><small class="muted">${esc(away(r))}</small>` : "–"}</td>
           <td>${fmtT(r.left_at) || "–"}</td><td><b>${hm(r.spent_seconds)}</b></td>
           <td>${d.length ? `<button class="btn ghost small" type="button" data-merge="${r.participant}" data-into="${d[0].participant}">Merge into ${esc(d[0].email)}</button>` : ""}</td></tr>`;

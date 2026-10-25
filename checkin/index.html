@@ -13,6 +13,13 @@
 <style>
   /* Participant's phone: check in once, then this page becomes their session room. */
   body{background:#fff}
+  .choice{display:flex;gap:14px;align-items:center;text-align:left;width:100%;padding:18px;border:1.5px solid var(--line-2);border-radius:16px;background:#fff;cursor:pointer;font:inherit;color:inherit}
+  .choice:hover,.choice:focus-visible{border-color:var(--ink);background:var(--sage)}
+  .choice i{font-style:normal;flex:none;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:800;background:var(--sage);color:var(--ink)}
+  #sBack i{background:#E4F0FF;color:#1F5FBF} #sNew i{background:#FFE9DE;color:#C2410C}
+  .choice span{display:flex;flex-direction:column;gap:3px}
+  .choice b{font-size:18px;font-weight:800}
+  .choice small{font-size:14px;color:var(--muted)}
   .p{max-width:520px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top,0px)) 18px calc(110px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:18px}
   .ptop{display:flex;justify-content:space-between;align-items:center;gap:12px}
   .ptop .live{font-family:var(--mono);font-size:12px;color:var(--faint);display:flex;gap:6px;align-items:center}
@@ -161,6 +168,22 @@
     <div class="err" id="aErr" role="alert"></div>
   </section>
 
+  <!-- first screen on a phone that doesn't know you yet -->
+  <section id="start" hidden style="display:flex;flex-direction:column;gap:14px">
+    <h2 style="font-size:26px;font-weight:800"><span lang="yo">Ẹ káàbọ̀</span> <span class="muted" style="font-family:var(--body);font-weight:500;font-size:16px">· You are welcome</span></h2>
+    <button class="choice" type="button" id="sBack"><i>↩</i><span><b>I've checked in before</b><small>Get back in with your email. No form, no new photo.</small></span></button>
+    <button class="choice" type="button" id="sNew"><i>＋</i><span><b>I'm new here</b><small>Check in with your name, email and photo.</small></span></button>
+  </section>
+
+  <!-- get back in with just the email -->
+  <form id="back" hidden novalidate style="display:flex;flex-direction:column;gap:16px">
+    <h2 style="font-size:26px;font-weight:800">Get back in</h2>
+    <label class="fld" for="bEmail">Your email<span class="hint">The one you used when you checked in.</span><input id="bEmail" type="email" inputmode="email" autocomplete="email"></label>
+    <button class="btn red" type="submit" id="bGo">Get me back in</button>
+    <div class="err" id="bErr" role="alert"></div>
+    <button class="btn ghost small" type="button" id="bNew" style="align-self:flex-start">I'm new here</button>
+  </form>
+
   <!-- check-in form -->
   <form id="form" hidden novalidate style="display:flex;flex-direction:column;gap:16px">
     <h2 style="font-size:26px;font-weight:800"><span lang="yo">Ẹ káàbọ̀</span> <span class="muted" style="font-family:var(--body);font-weight:500;font-size:16px">· You are welcome</span></h2>
@@ -177,6 +200,7 @@
     <label class="consent"><input type="checkbox" id="fConsent"><span>I agree that my name, organisation and photo will be shown on the welcome screen and kept in this programme's register.</span></label>
     <div class="err" id="fErr" role="alert"></div>
     <button class="btn red" type="submit" id="fGo">Check me in</button>
+    <button class="btn ghost small" type="button" id="fBack" style="align-self:flex-start">I've checked in before</button>
   </form>
 
   <!-- the room -->
