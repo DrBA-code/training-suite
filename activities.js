@@ -6,21 +6,21 @@ window.TSA = (() => {
   const LETTERS = "ABCDEF";
   const COLORS = ["#F4B400", "#3FB98A", "#5AA9E6", "#F2786F", "#B48EF0", "#F0A35E"];
   const KINDS = {
-    poll:   { name: "Live poll",       line: "Ask the room. Bars grow as votes come in.", opts: true, sec: 0, color: "#F4B400" },
-    words:  { name: "Word cloud",      line: "Short answers grow on screen as people repeat them.", sec: 0, color: "#2747C8" },
-    quiz:   { name: "Quiz",            line: "Timed multiple choice. Faster right answers score more.", opts: true, scored: true, sec: 20, color: "#2747C8" },
-    buzz:   { name: "First to catch",  line: "The first correct answer wins the round.", opts: true, scored: true, sec: 0, color: "#F4B400" },
-    battle: { name: "Group battle",    line: "Group A against Group B, with a tug-of-war bar.", opts: true, scored: true, sec: 20, teams: true, color: "#14161C" },
-    order:  { name: "Order it",        line: "Put the steps of a process in the right order.", scored: true, sec: 60, color: "#D2391F" },
-    match:  { name: "Match it",        line: "Pair each term with its meaning.", scored: true, sec: 60, color: "#2747C8" },
-    spot:   { name: "Spot the error",  line: "Participants tap the mistake on a picture.", scored: true, sec: 45, color: "#F4B400" },
-    case:   { name: "Case study race", line: "Groups answer a case; the first group to answer is shown.", sec: 300, teams: true, text: true, color: "#14161C" },
-    exit:   { name: "Exit ticket",     line: "“One thing I'll apply at my desk.”", sec: 0, text: true, color: "#D2391F" },
-    scale:  { name: "Rating gauge",    line: "Everyone slides to a number; the gauge shows the room's average.", sec: 0, color: "#3FB98A" },
-    feedback: { name: "Star feedback", line: "1 to 5 stars and a comment, any time you want a quick check.", sec: 0, color: "#F4B400" },
-    short:  { name: "Short answer",    line: "Participants type a word or phrase. Auto-marked if you give the accepted answers.", scored: true, sec: 30, color: "#2747C8" },
-    finger: { name: "Finger vote",     line: "Everyone raises 1 to 5 fingers; the webcam counts the room.", opts: true, maxOpts: 5, sec: 0, color: "#D2391F" },
-    test:   { name: "Pre & post test", line: "The same questions at the start and the end. Each person sees their learning achievement.", opts: true, scored: true, sec: 30, color: "#D2391F", noboard: true }
+    poll:   { say: "Vote on your phone. Watch the bars move.", name: "Live poll",       line: "Ask the room. Bars grow as votes come in.", opts: true, sec: 0, color: "#F4B400" },
+    words:  { say: "Type a word or two on your phone. Popular answers grow bigger.", name: "Word cloud",      line: "Short answers grow on screen as people repeat them.", sec: 0, color: "#2747C8" },
+    quiz:   { say: "Answer on your phone. Faster right answers score more.", name: "Quiz",            line: "Timed multiple choice. Faster right answers score more.", opts: true, scored: true, sec: 20, color: "#2747C8" },
+    buzz:   { say: "Be the first to answer correctly on your phone!", name: "First to catch",  line: "The first correct answer wins the round.", opts: true, scored: true, sec: 0, color: "#F4B400" },
+    battle: { say: "Pick your group on your phone, then answer. Every right answer pulls the rope.", name: "Group battle",    line: "Group A against Group B, with a tug-of-war bar.", opts: true, scored: true, sec: 20, teams: true, color: "#14161C" },
+    order:  { say: "Put the steps in the right order on your phone.", name: "Order it",        line: "Put the steps of a process in the right order.", scored: true, sec: 60, color: "#D2391F" },
+    match:  { say: "Match each term to its meaning on your phone.", name: "Match it",        line: "Pair each term with its meaning.", scored: true, sec: 60, color: "#2747C8" },
+    spot:   { say: "Find the mistake in the picture and tap it on your phone.", name: "Spot the error",  line: "Participants tap the mistake on a picture.", scored: true, sec: 45, color: "#F4B400" },
+    case:   { say: "Read the case on your phone, discuss in your group, and send your answer.", name: "Case study race", line: "Groups answer a case; the first group to answer is shown.", sec: 300, teams: true, text: true, color: "#14161C" },
+    exit:   { say: "On your phone: one thing you'll apply at your desk.", name: "Exit ticket",     line: "“One thing I'll apply at my desk.”", sec: 0, text: true, color: "#D2391F" },
+    scale:  { say: "Slide to your number on your phone.", name: "Rating gauge",    line: "Everyone slides to a number; the gauge shows the room's average.", sec: 0, color: "#3FB98A" },
+    feedback: { say: "Tap 1 to 5 stars on your phone, and add a comment if you like.", name: "Star feedback", line: "1 to 5 stars and a comment, any time you want a quick check.", sec: 0, color: "#F4B400" },
+    short:  { say: "Type your answer on your phone. Be quick: faster right answers score more.", name: "Short answer",    line: "Participants type a word or phrase. Auto-marked if you give the accepted answers.", scored: true, sec: 30, color: "#2747C8" },
+    finger: { say: "Raise your hand high and show the number of fingers for your answer.", name: "Finger vote",     line: "Everyone raises 1 to 5 fingers; the webcam counts the room.", opts: true, maxOpts: 5, sec: 0, color: "#D2391F" },
+    test:   { say: "Answer on your phone.", name: "Pre & post test", line: "The same questions at the start and the end. Each person sees their learning achievement.", opts: true, scored: true, sec: 30, color: "#D2391F", noboard: true }
   };
   const PROMPTY = k => ["case", "exit", "words"].includes(k);
   function blankStep(kind) {
@@ -215,13 +215,13 @@ window.TSA = (() => {
     const initials = n => String(n || "?").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
     const firstName = n => String(n || "").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(/\s+/)[0] || n;
     el.innerHTML = `<div class="lv">
-      <div class="lv-top"><span class="lbl" style="color:var(--yellow)" data-l="kind"></span><span class="st-mono" data-l="step"></span><span class="lv-count"><b data-l="count">0</b> <span data-l="countLbl">answered</span></span></div>
+      <div class="lv-top"><span class="lbl" style="color:var(--sacc)" data-l="kind"></span><span class="st-mono" data-l="step"></span><span class="lv-count"><b data-l="count">0</b> <span data-l="countLbl">answered</span></span></div>
+      <div class="lv-bar"><button class="key" type="button" data-l="prev" aria-label="Previous question">◀ Q</button><button class="key next" type="button" data-l="main"></button><button class="key" type="button" data-l="nextq" aria-label="Next question">Q ▶</button>${boardOK ? `<button class="key" type="button" data-l="board">Leaderboard</button>` : ""}${o.ai && (kind === "case" || kind === "exit") ? `<button class="key ai" type="button" data-l="ai">✨ ${kind === "case" ? "AI review and feedback" : "AI summary"}</button>` : ""}<span class="st-mono">Space: next step</span></div>
       <div class="lv-timer" data-l="timer"><i></i></div>
       <div class="lv-tug" data-l="tug" ${K.teams && kind !== "case" ? "" : "hidden"}><span>Group A <b data-l="tA">0</b></span><div class="track"><i data-l="tBar"></i><span class="mid"></span></div><span><b data-l="tB">0</b> Group B</span></div>
       <h2 class="lv-q" data-l="q"></h2><div class="lv-sub" data-l="sub"></div>
       <div class="lv-viz" data-l="viz"></div>
       <div class="lv-faces" data-l="faces" aria-hidden="true"></div>
-      <div class="lv-bar"><button class="key" type="button" data-l="prev" aria-label="Previous question">◀ Q</button><button class="key next" type="button" data-l="main"></button><button class="key" type="button" data-l="nextq" aria-label="Next question">Q ▶</button>${boardOK ? `<button class="key" type="button" data-l="board">Leaderboard</button>` : ""}${o.ai && (kind === "case" || kind === "exit") ? `<button class="key ai" type="button" data-l="ai">✨ ${kind === "case" ? "AI review and feedback" : "AI summary"}</button>` : ""}<span class="st-mono">Space: next step</span></div>
       <div class="lv-over" data-l="over" hidden></div></div>`;
     const $l = n => el.querySelector(`[data-l="${n}"]`);
     const stepNow = () => steps[L.step];
@@ -324,6 +324,7 @@ window.TSA = (() => {
       const showFaces = !rev && !["words", "poll", "exit", "finger", "scale", "feedback"].includes(kind);
       $l("faces").innerHTML = showFaces ? L.rows.slice(-60).map(r => `<span class="fc ${r.grp}">${r.photo ? `<img src="${esc(r.photo)}" alt="">` : esc(initials(r.name))}</span>`).join("") : "";
       (VIZ[kind] || VIZ.text)($l("viz"), s, L.rows, rev);
+      if (L.phase === "open" && !$l("sub").textContent.trim() && K.say) $l("sub").textContent = K.say;
     }
     const counts = (rows, n) => { const c = Array(n).fill(0); rows.forEach(r => { const i = +r.answer?.i; if (i >= 0 && i < n) c[i]++; }); return c; };
     function bars(options, c, { hide = false, correct = null } = {}) {

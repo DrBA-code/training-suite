@@ -1123,7 +1123,6 @@
     $("stPos").textContent = `${P.i + 1} of ${P.items.length}`;
     $("stKind").textContent = it.t === "slide" ? "Training" : it.t === "welcome" ? "Check-in" : it.label;
     $("stNext").textContent = P.i < P.items.length - 1 ? "Next: " + P.items[P.i + 1].label + " ▶" : "Finish session ✓";
-    $("stShareSlide").hidden = it.t !== "slide";
     document.querySelectorAll("#stStrip [data-go]").forEach(b => { b.classList.toggle("on", +b.dataset.go === P.i); });
     document.querySelector("#stStrip .on")?.scrollIntoView({ block: "nearest", inline: "center" });
     draw(); sayNow(); remoteState();
@@ -1132,7 +1131,7 @@
     const it = P.items[P.i], m = $("stMain");
     if (it.t === "welcome") return drawWelcome();
     if (it.t === "slide") {
-      if (!P.pdf) { m.innerHTML = `<div class="st-card"><span class="lbl" style="color:var(--yellow)">Slide ${it.n}</span><b>${P.pdfErr ? "Couldn't open your slides." : "Loading your slides…"}</b></div>`; return; }
+      if (!P.pdf) { m.innerHTML = `<div class="st-card"><span class="lbl" style="color:var(--sacc)">Slide ${it.n}</span><b>${P.pdfErr ? "Couldn't open your slides." : "Loading your slides…"}</b></div>`; return; }
       // Render the new slide off-screen, then swap it in with the chosen transition.
       const old = m.querySelector("canvas#stCanvas"), keepOld = old && P.lastSlide !== it.n && !P.redraw;
       if (!old) m.innerHTML = "";
@@ -1153,15 +1152,23 @@
         if (!prev || !keepOld || redraw || t === "none" || reduced) { m.innerHTML = ""; c.id = "stCanvas"; m.appendChild(c); return; }
         prev.id = ""; prev.classList.add("leaving"); c.id = "stCanvas"; m.appendChild(c);
         const dir = P.dir < 0 ? "back" : "fwd";
-        prev.classList.add("tr-out", "t-" + t, dir); c.classList.add("tr-in", "t-" + t, dir);
-        setTimeout(() => { prev.remove(); c.classList.remove("tr-in", "t-" + t, dir); }, t === "morph" ? 900 : 650);
+        // Morph picks a different camera move each time: push into a point, pull back, swing, drift or spin.
+        let mv = "";
+        if (t === "morph") {
+          const moves = ["push", "pull", "swing", "drift", "spin"].filter(x => x !== P.lastMove);
+          mv = "m-" + (P.lastMove = moves[Math.floor(Math.random() * moves.length)]);
+          const ox = 20 + Math.random() * 60 + "%", oy = 20 + Math.random() * 60 + "%";
+          [prev, c].forEach(el => { el.style.setProperty("--ox", ox); el.style.setProperty("--oy", oy); });
+        }
+        prev.classList.add("tr-out", "t-" + t, dir); c.classList.add("tr-in", "t-" + t, dir); if (mv) { prev.classList.add(mv); c.classList.add(mv); }
+        setTimeout(() => { prev.remove(); c.classList.remove("tr-in", "t-" + t, dir); if (mv) c.classList.remove(mv); }, t === "morph" ? 1050 : 650);
       });
       return;
     }
     const slot = slotOfItem(it);
     if (slot) return drawActivity(it, slot);
     const tool = it.t === "tool" ? TOOL[it.tool] : null, card = CARD[it.key] || [it.label, ""];
-    m.innerHTML = `<div class="st-card"><span class="sq" style="background:${tool ? tool.color : it.key === "certificates" ? "#F4B400" : "#D2391F"}"></span><span class="lbl" style="color:var(--yellow)">${tool ? "Activity" : "Next up"}</span><b>${esc(tool ? tool.name : card[0])}</b><span>${esc(tool ? tool.line : card[1])}</span><span class="soon">This runs live on phones in the next update of Training Suite.</span></div>`;
+    m.innerHTML = `<div class="st-card"><span class="sq" style="background:${tool ? tool.color : it.key === "certificates" ? "#F4B400" : "#D2391F"}"></span><span class="lbl" style="color:var(--sacc)">${tool ? "Activity" : "Next up"}</span><b>${esc(tool ? tool.name : card[0])}</b><span>${esc(tool ? tool.line : card[1])}</span><span class="soon">This runs live on phones in the next update of Training Suite.</span></div>`;
   }
   // Activities between slides: an intro card, then the live runner (activities.js).
   const slotOfItem = it => it.t === "tool" && SLOTS.includes(it.tool) ? it.tool : it.t === "card" && (it.key === "pretest" || it.key === "posttest") ? "test" : null;
@@ -1169,9 +1176,9 @@
     if (P.run) return;
     const m = $("stMain"), a = P.acts.find(x => x.slot === slot), K = TSA.KINDS[slot], ok = a && a.data?.steps?.length;
     const name = slot === "test" ? (it.key === "pretest" ? "Pre-test" : "Post-test") : (a?.title || K.name);
-    const line = slot === "test" ? (it.key === "pretest" ? "Where everyone starts. Answer on your phone." : "The same questions again. You'll see your learning achievement.") : K.line;
+    const line = slot === "test" ? (it.key === "pretest" ? "Where everyone starts. Answer on your phone." : "The same questions again. You'll see your learning achievement.") : (K.say || K.line);
     const n = ok ? a.data.steps.length : 0;
-    m.innerHTML = `<div class="st-card"><span class="sq" style="background:${K.color}"></span><span class="lbl" style="color:var(--yellow)">${slot === "test" ? "Test" : "Activity"}${n ? ` · ${n} ${TSA.PROMPTY(slot) ? "prompt" : "question"}${n === 1 ? "" : "s"}` : ""}</span><b>${esc(name)}</b><span>${esc(line)}</span>
+    m.innerHTML = `<div class="st-card"><span class="sq" style="background:${K.color}"></span><span class="lbl" style="color:var(--sacc)">${slot === "test" ? "Test" : "Activity"}${n ? ` · ${n} ${TSA.PROMPTY(slot) ? "prompt" : "question"}${n === 1 ? "" : "s"}` : ""}</span><b>${esc(name)}</b><span>${esc(line)}</span>
       ${ok ? `<button class="key next big" type="button" id="stStart">▶ Start${P.phones ? ` · ${P.phones} phone${P.phones === 1 ? "" : "s"} ready` : ""}</button><span class="soon">Enter starts it · → skips it</span>`
            : `<span class="soon">No questions written yet. Add them on the session's Assessments tab, then reopen the live screen.</span>`}</div>`;
     $("stStart")?.addEventListener("click", () => startRun(it, slot, a));
@@ -1186,9 +1193,9 @@
   }
   function drawWelcome() {
     const m = $("stMain"), code = P.s.attendance_code, link = checkinLink(code), here = P.roll.filter(r => !r.left_at);
-    m.innerHTML = `<div class="st-welcome"><div class="st-scan"><div class="qr big">${qrSvg(link)}</div><span class="lbl" style="color:#8FA69B">Scan to check in</span><span class="code" style="color:#fff">${esc(code)}</span><span class="small" style="color:#8FA69B;word-break:break-all">${esc(link)}</span></div>
+    m.innerHTML = `<div class="st-welcome"><div class="st-scan"><div class="qr big">${qrSvg(link)}</div><span class="lbl" style="color:var(--smuted)">Scan to check in</span><span class="code" style="color:var(--sstrong)">${esc(code)}</span><span class="small" style="color:var(--smuted);word-break:break-all">${esc(link)}</span></div>
       <div class="st-roll"><div class="st-hello"><span lang="yo">Ẹ káàbọ̀</span> · You are welcome</div><h2>${esc(P.s.topic)}</h2>
-      <div class="faces">${here.slice(-40).reverse().map(r => `<figure>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : `<span>${esc((r.name || "?")[0])}</span>`}<figcaption>${esc(pName(r))}</figcaption></figure>`).join("") || `<p style="color:#8FA69B">Arrivals appear here.</p>`}</div></div></div>`;
+      <div class="faces">${here.slice(-40).reverse().map(r => `<figure>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : `<span>${esc((r.name || "?")[0])}</span>`}<figcaption>${esc(pName(r))}</figcaption></figure>`).join("") || `<p style="color:var(--smuted)">Arrivals appear here.</p>`}</div></div></div>`;
   }
   function nextArrival() {
     if (!P || P.showing || !P.queue.length || P.items[P.i]?.t !== "welcome") return;
@@ -1361,7 +1368,15 @@
   $("stPrev").addEventListener("click", () => P && goItem(P.i - 1));
   $("stNext").addEventListener("click", () => { if (!P) return; if (P.i >= P.items.length - 1) finishSession(); else goItem(P.i + 1); });
   $("stShareBtn").addEventListener("click", () => P && openShare());
-  $("stShareSlide").addEventListener("click", () => { if (!P) return; openShare(); });
+  // the session flow strip only appears when you ask for it
+  function flowStrip(on) { $("stage").style.setProperty("--dockh", $("stDock").offsetHeight + "px"); $("stStrip").hidden = !on; $("stFlowBtn").setAttribute("aria-expanded", on); if (on) document.querySelector("#stStrip .on")?.scrollIntoView({ block: "nearest", inline: "center" }); }
+  $("stFlowBtn").addEventListener("click", () => flowStrip($("stStrip").hidden));
+  $("stStrip").addEventListener("click", e => { if (e.target.closest("[data-go]")) setTimeout(() => flowStrip(false), 150); });
+  // light screen by default; dark for dark slide decks (remembered on this computer)
+  const darkPref = () => { try { return localStorage.getItem("ts_dark") === "1"; } catch { return false; } };
+  function setDark(on) { $("stage").classList.toggle("dark", on); $("stTheme").textContent = on ? "☀️ Light" : "🌙 Dark"; try { localStorage.setItem("ts_dark", on ? "1" : ""); } catch {} }
+  $("stTheme").addEventListener("click", () => setDark(!$("stage").classList.contains("dark")));
+  setDark(darkPref());
   $("stFs").addEventListener("click", () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else $("stage").requestFullscreen?.().catch(() => {}); });
   $("stExit").addEventListener("click", () => exitPresent());
   // One set of commands for the keyboard, hand gestures and the phone remote.
@@ -1387,6 +1402,9 @@
     else if (e.key === "b" || e.key === "B" || e.key === ".") cmd("blank");
     else if (e.key === "g" || e.key === "G") $("stGest").click();
     else if (e.key === "t" || e.key === "T") nextTrans();
+    else if (e.key === "l" || e.key === "L") $("stFlowBtn").click();
+    else if (e.key === "d" || e.key === "D") $("stTheme").click();
+    else if (e.key === "Escape" && !$("stStrip").hidden) flowStrip(false);
     else if (e.key === "h" || e.key === "H") window.TSG?.checkHands();
     else if (e.key === "Escape" && !$("stWheel").hidden) closeWheel();
     else if (e.key === "Escape" && !$("stRemote").hidden) $("stRemote").hidden = true;

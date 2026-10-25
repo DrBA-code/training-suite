@@ -97,3 +97,12 @@ Run `supabase/schema-8-more.sql` once (after schema-7).
 - **New activities:** Short answer (auto-marked against accepted answers), Rating gauge, Star feedback.
 - **Live screen:** slide transitions (Morph, Zoom, Fade, Slide, None; ✨ button or T). In full screen the bars hide and come back when the mouse reaches the bottom edge. Links can be shared to phones.
 - Upload progress shows in green, never red.
+
+## Live screen polish (25 Oct)
+
+- Light screen by default, to sit with most slide decks; **🌙 Dark** (or D) switches to a dark room, and is remembered.
+- Activity controls (Reveal, Next question, Finish) are at the top, away from the bottom edge that brings up the bars in full screen.
+- **☰ Flow** (or L) shows the session flow only when you want it.
+- One **Share** button: this slide, files and links.
+- Activity screens show instructions for the room ("Vote on your phone…"), not notes for the facilitator.
+- Morph now makes a different camera move each time: push into a point, pull back, swing, drift or spin.
