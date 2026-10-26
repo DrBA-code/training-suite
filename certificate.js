@@ -435,7 +435,7 @@ window.TSC = (() => {
   }
   // From a stored certificate row (number, name, issued_at, design, info).
   const dataOf = c => ({ name: c.name, number: c.number, programme: c.info?.programme || "", dates: datesText(c.info), venue: c.info?.venue || "", issued: c.issued_at ? dmy(c.issued_at) : "" });
-  const sample = (info, name) => ({ name: name || "Ada Obi", number: "TS-" + new Date().getFullYear() + "-SAMPLE", programme: info?.programme || "Programme name", dates: datesText(info) || dmy(new Date().toISOString()), venue: info?.venue || "", issued: dmy(new Date().toISOString()) });
+  const sample = (info, name) => ({ name: name || "Dr Babajide Arulogun", number: "TS-" + new Date().getFullYear() + "-SAMPLE", programme: info?.programme || "Programme name", dates: datesText(info) || dmy(new Date().toISOString()), venue: info?.venue || "", issued: dmy(new Date().toISOString()) });
 
   let jsPdf = null;
   function loadPdf() {

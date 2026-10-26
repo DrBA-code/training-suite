@@ -129,7 +129,7 @@ window.TSCU = (() => {
     </div>`;
     const msg = (t, bad) => { const m = box.querySelector("#cedMsg"); if (m) { m.textContent = t || ""; m.style.color = bad ? "#B3261E" : "var(--muted)"; } };
     const info = () => infoOf(p, ctx.sessions);
-    const sampleName = () => "Dr. Adaeze Obi-Williams";
+    const sampleName = () => "Dr Babajide Arulogun";
     let drawing = 0;
     async function preview() {
       const c = box.querySelector("#cedCanvas"); if (!c) return;
@@ -143,7 +143,7 @@ window.TSCU = (() => {
         const el = box.querySelector(`[data-thumb="${t.id}"]`); if (!el) continue;
         const dd = { ...d, template: t.id, accent: t.id === d.template ? d.accent : t.accent };
         if (t.id === "upload" && !d.upload) { const g = el.getContext("2d"); g.fillStyle = "#F3F5F2"; g.fillRect(0, 0, 240, 170); g.fillStyle = "#5B6170"; g.font = "600 15px 'Plus Jakarta Sans', Arial"; g.textAlign = "center"; g.fillText("⬆ Upload", 120, 90); continue; }
-        const c = await C().render(dd, C().sample(info(), "Ada Obi"), 240); el.width = c.width; el.height = c.height; el.getContext("2d").drawImage(c, 0, 0);
+        const c = await C().render(dd, C().sample(info(), "Dr Babajide Arulogun"), 240); el.width = c.width; el.height = c.height; el.getContext("2d").drawImage(c, 0, 0);
       }
     }
     function persist() {
