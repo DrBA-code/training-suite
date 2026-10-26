@@ -342,6 +342,7 @@
       <label class="fld">Dates<input name="dates" value="${esc(p?.dates)}" placeholder="e.g. 3 to 7 November 2026"></label>
       <label class="fld full">Venue<input name="venue" value="${esc(p?.venue)}"></label>
       <label class="opt full"><input type="checkbox" name="certificates" ${p?.certificates ? "checked" : ""}><span><b>Issue certificates (optional)</b><span class="muted">Given at the end of the programme's last session.</span></span></label>
+      <label class="opt full"><input type="checkbox" name="focus" ${p?.focus_allowed ? "checked" : ""}><span><b>Allow Focus mode</b><span class="muted">The facilitator can turn it on during a session: phones are asked to stay on Training Suite, and leaving is logged.</span></span></label>
       <label class="fld">Who qualifies<select name="cert_rule">${[["completion", "Completion: attended, post-test and evaluation"], ["attendance", "Attendance only"], ["achievement", "Achievement: completion plus a pass mark"]].map(([v, t]) => `<option value="${v}" ${p?.cert_rule === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <div class="row full"><button class="btn red" type="submit">${p ? "Save changes" : "Create programme"}</button><button class="btn ghost" type="button" id="pCancel">Cancel</button><span class="err" id="pErr" role="alert"></span></div>
     </form>`;
@@ -353,7 +354,7 @@
       const open = !!openProg[p.id];
       return `<section class="prog"><button type="button" data-open="${p.id}" aria-expanded="${open}">
           <span class="sw" style="background:${["#D2391F", "#2747C8", "#F4B400", "#14161C"][progs.indexOf(p) % 4]}"></span>
-          <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}${p.roster_only ? " · Registered list only" : ""}</span></span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}
+          <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}${p.roster_only ? " · Registered list only" : ""}${p.focus_allowed ? " · Focus mode" : ""}</span></span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}
           <span class="meta meta2">${ss.length} session${ss.length === 1 ? "" : "s"}</span><span class="sign">${open ? "HIDE −" : "SESSIONS +"}</span></button>
         ${open ? `<div class="inside">${ss.map(s => { const [t, c] = statusOf(s); return `<a class="srow" href="#/session/${s.id}"><span><b>${esc(s.topic)}</b><small>${esc(fmtDate(s.session_date))}${s.start_time ? " · " + esc(s.start_time) : ""}</small></span><span class="badge ${c}">${t}</span><span class="ok">Open →</span></a>`; }).join("") || `<p class="muted" style="padding:6px 0 12px">No sessions in this programme yet.</p>`}
           <div class="row" style="margin-top:10px"><a class="btn ghost small" href="#/new?p=${p.id}">+ Add a session</a><a class="btn ghost small" href="#/people/${p.id}">Participants</a><a class="btn ghost small" href="#/programmes?edit=${p.id}">Edit programme</a><button class="btn ghost small" type="button" data-again="${p.id}">↻ Run again for a new group</button><a class="btn ghost small" href="#/report/p/${p.id}">Programme report</a><button class="btn danger small" type="button" data-del="${p.id}">Delete</button></div>
@@ -370,6 +371,7 @@
       f.addEventListener("submit", async e => {
         e.preventDefault();
         const row = { name: f.name.value.trim(), code: f.code.value.trim(), dates: f.dates.value.trim(), venue: f.venue.value.trim(), certificates: f.certificates.checked, cert_rule: f.cert_rule.value };
+        const was = editing && progs.find(p => p.id === editing)?.focus_allowed; if (f.focus.checked || was) row.focus_allowed = f.focus.checked;
         if (row.name.length < 3) return ($("pErr").textContent = "Give the programme a name.");
         $("pErr").textContent = "Saving…";
         const res = editing ? await sb.from("programmes").update(row).eq("id", editing).select().single() : await sb.from("programmes").insert(row).select().single();
@@ -933,8 +935,8 @@
         const { data: part } = await sb.rpc("session_participation", { p_session: s.id });
         const pm = Object.fromEntries((part || []).map(x => [x.participant, x]));
         csvDownload(`Register - ${s.topic}`, [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [],
-          ["#", "Title", "Name", "Email", "Organisation", "Sex", "Group", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
-          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, { male: "Male", female: "Female", na: "Prefer not to say" }[r.sex] || "", r.grp ? TSGR.name(s.groups, r.grp) : "", fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
+          ["#", "Title", "Name", "Email", "Organisation", "Sex", "Group", "Focus: times left", "Focus: time away", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
+          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, { male: "Male", female: "Female", na: "Prefer not to say" }[r.sex] || "", r.grp ? TSGR.name(s.groups, r.grp) : "", r.focus_accepted ? r.focus_leaves || 0 : "", r.focus_accepted ? hm(r.focus_away || 0) : "", fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
       };
     };
     $("regRefresh").onclick = draw;
@@ -1285,6 +1287,10 @@
     P.channel.on("broadcast", { event: "checkin" }, () => refreshRoll(true));
     P.channel.on("broadcast", { event: "answered" }, () => P?.run?.onAnswered());
     P.channel.on("broadcast", { event: "evaluated" }, () => evalCount());
+    P.channel.on("broadcast", { event: "focus_out" }, ({ payload }) => focusOut(payload));
+    P.channel.on("broadcast", { event: "focus_back" }, ({ payload }) => focusBack(payload));
+    P.channel.on("broadcast", { event: "focus_ok" }, () => loadFocus());
+    P.channel.on("broadcast", { event: "focus_research" }, ({ payload }) => payload && focusNote(`🔎 ${payload.name} started a ${payload.minutes}-minute research window`, "#1F5FBF"));
     P.channel.subscribe(st => { if (st === "SUBSCRIBED") sayNow(); });
     P.nowTimer = setInterval(sayNow, 10000);
     P.remoteTimer = setInterval(() => remoteState(), 3000);
@@ -1292,6 +1298,9 @@
     P.rollTimer = setInterval(() => refreshRoll(true), 8000);
     P.acts = (await loadActs(s.id, true)) || [];
     await refreshRoll(false);
+    loadFocus(true);
+    P.focusTimer = setInterval(drawAlerts, 1000);
+    $("stage").style.setProperty("--dockh", $("stDock").offsetHeight + "px");
     goItem(0);
     if (gestPref()) gestures(true);
     poke();
@@ -1301,7 +1310,7 @@
     if (!P) return;
     stopRun(); closeWheel(); window.TSG?.stop(); $("stCam").hidden = true; $("stGest").setAttribute("aria-pressed", "false"); $("stBlank").hidden = true; $("stRemote").hidden = true;
     if (P.remote) sb.removeChannel ? sb.removeChannel(P.remote) : P.remote.unsubscribe?.();
-    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer);
+    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer); clearInterval(P.focusTimer); $("stAlerts").innerHTML = ""; $("stFocus").hidden = true;
     if (P.channel) sb.removeChannel ? sb.removeChannel(P.channel) : P.channel.unsubscribe?.();
     P = null;
   }
@@ -1333,6 +1342,7 @@
     counts();
     if (P.items[P.i]?.t === "welcome") { drawWelcome(); nextArrival(); }
     if (!$("stGroups").hidden && gcfg() && !document.querySelector(".gghost,.gnamein,.gform")) drawGroups();
+    if (P.focus && announce) loadFocus();
   }
   function counts() {
     if (!P) return;
@@ -1737,6 +1747,89 @@
   }
   $("stGroupsBtn").addEventListener("click", () => { if (!P) return; $("stGroups").hidden ? openGroups() : closeGroups(); });
 
+  // ---------- focus mode ----------
+  // P.focus = the session's focus settings; P.fx = everyone's focus state; P.away = who is off the page now.
+  const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  async function loadFocus(seed) {
+    if (!P) return;
+    const { data, error } = await sb.rpc("session_focus", { p_session: P.s.id });
+    if (error || !data) { P.fx = null; return; }
+    P.fx = data; P.focus = data.focus && data.focus.on ? data.focus : null; P.away = P.away || new Map();
+    if (seed && P.focus) (data.rows || []).forEach(r => { if (r.out_at && r.in_room) P.away.set(r.participant, { name: r.name, since: +new Date(r.out_at), research: false, until: 0 }); });
+    if (!P.focus) P.away.clear();
+    const waiting = P.focus ? (data.rows || []).filter(r => r.in_room && !r.accepted).length : 0;
+    $("stFocusN").hidden = !waiting; $("stFocusN").textContent = waiting; $("stFocusBtn").classList.toggle("on", !!P.focus);
+    $("stFocusBtn").title = P.focus ? `Focus mode is on${waiting ? ` · ${waiting} not accepted yet` : ""} (O)` : "Focus mode (O)";
+    if (!$("stFocus").hidden) drawFocusPanel();
+    drawAlerts();
+  }
+  function focusOut(p) {
+    if (!P?.focus || !p) return; P.away = P.away || new Map();
+    P.away.set(p.participant, { name: p.name, since: Date.now(), research: !!p.research, until: p.until || 0 }); drawAlerts();
+  }
+  function focusBack(p) {
+    if (!P || !p) return; const a = P.away?.get(p.participant); P.away?.delete(p.participant);
+    if (P.focus && p.secs > (P.focus.grace || 20)) focusNote(`${p.name} is back · away ${p.secs < 60 ? p.secs + " s" : mmss(p.secs)}`, "#0F8A5F");
+    drawAlerts(); if (a && !$("stFocus").hidden) loadFocus();
+  }
+  function focusNote(t, color) {
+    const el = document.createElement("div"); el.className = "st-alert note"; el.style.setProperty("--ac", color || "#14161C"); el.textContent = t;
+    $("stAlerts").appendChild(el); setTimeout(() => el.remove(), 6000);
+  }
+  // Who has been off the page longer than the grace period, with a running timer.
+  function drawAlerts() {
+    if (!P) return; const box = $("stAlerts"), now = Date.now(), grace = (P.focus?.grace || 20) * 1000;
+    box.querySelectorAll(".st-alert.away").forEach(e => e.remove());
+    if (!P.focus || !P.away) return;
+    const list = [...P.away.entries()].map(([id, a]) => {
+      const counted = a.research && a.until > a.since ? Math.max(0, now - Math.max(a.since, a.until)) : now - a.since;
+      return { id, ...a, counted, researching: a.research && now < a.until };
+    }).filter(a => a.researching || a.counted > grace).sort((x, y) => y.counted - x.counted);
+    list.slice(0, 6).forEach(a => {
+      const el = document.createElement("div"); el.className = "st-alert away" + (a.researching ? " res" : "");
+      el.innerHTML = a.researching ? `🔎 <b>${esc(a.name)}</b> is researching · ${mmss((a.until - now) / 1000)} left` : `⚠ <b>${esc(a.name)}</b> left Training Suite · ${mmss(a.counted / 1000)}`;
+      box.prepend(el);
+    });
+    if (list.length > 6) { const el = document.createElement("div"); el.className = "st-alert away"; el.textContent = `and ${list.length - 6} more away`; box.appendChild(el); }
+  }
+  function drawFocusPanel() {
+    const box = $("stFocus"), fx = P.fx; if (!fx) { box.innerHTML = `<div class="gform"><h2>Focus mode</h2><p>Focus mode isn't set up in the database yet: run supabase/schema-14-focus.sql in Supabase.</p><div class="row"><button type="button" class="key" data-fx>Close</button></div></div>`; box.querySelector("[data-fx]").onclick = () => (box.hidden = true); return; }
+    const f = fx.focus || { on: false, grace: 20, research: 3 }, rows = (fx.rows || []).filter(r => r.in_room), now = Date.now();
+    const status = r => { const a = P.away?.get(r.participant); if (!a) return `<span class="ok">Here</span>`; if (a.research && now < a.until) return `<span style="color:#1F5FBF">Researching</span>`; return `<b style="color:#D2391F">Away ${mmss((now - a.since) / 1000)}</b>`; };
+    box.innerHTML = `<div class="gform"><div class="row" style="justify-content:space-between"><h2>🎯 Focus mode</h2><button type="button" class="x" data-fx aria-label="Close">×</button></div>
+      ${!fx.allowed ? `<div class="note warn" style="color:#14161C">Focus mode is off for this programme. <button type="button" class="key next" id="fxAllow">Allow Focus mode for this programme</button></div>` : `
+      <p class="st-mono">Phones are asked to accept. Leaving Training Suite for longer than the grace period is logged and shown here, with a timer. Locking the phone counts as leaving.</p>
+      <div class="gsize"><label class="gopt">Grace period <select id="fxGrace" class="fxsel">${[10, 20, 30, 60, 120].map(v => `<option value="${v}" ${f.grace === v ? "selected" : ""}>${v < 60 ? v + " seconds" : v / 60 + " minute" + (v > 60 ? "s" : "")}</option>`).join("")}</select></label>
+        <label class="gopt">Research window <select id="fxRes" class="fxsel">${[0, 2, 3, 5, 10].map(v => `<option value="${v}" ${(f.research ?? 3) === v ? "selected" : ""}>${v ? v + " minutes" : "Off"}</option>`).join("")}</select></label></div>
+      <div class="row"><button type="button" class="key next big" id="fxToggle">${f.on ? "Turn Focus mode off" : "Turn Focus mode on"}</button>${f.on ? `<button type="button" class="key" id="fxSave">Save changes</button>` : ""}<span class="st-mono">${f.on ? `${rows.filter(r => r.accepted).length} of ${rows.length} accepted · ${P.away?.size || 0} away now` : ""}</span></div>
+      ${rows.length ? `<div class="fxwrap"><table class="fxt"><thead><tr><th>Name</th><th>Accepted</th><th>Now</th><th>Times left</th><th>Time away</th><th>Research</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : ""}<b>${esc(r.name)}</b></td><td>${r.accepted ? "✓" : `<span style="color:#B8860B">Waiting</span>`}</td><td>${f.on && r.accepted ? status(r) : "–"}</td><td>${r.leaves || "–"}${r.short ? ` <small class="st-mono">(+${r.short} short)</small>` : ""}</td><td>${r.away ? mmss(r.away) : "–"}</td><td>${r.research || "–"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="st-mono">No one is checked in yet.</p>`}`}</div>`;
+    box.querySelector("[data-fx]").onclick = () => (box.hidden = true);
+    $("fxAllow")?.addEventListener("click", async () => {
+      const { error } = await sb.from("programmes").update({ focus_allowed: true }).eq("id", P.s.programme_id);
+      if (error) return toast(errText(error, "Couldn't change the programme."));
+      progs = progs.map(x => x.id === P.s.programme_id ? { ...x, focus_allowed: true } : x); loadFocus();
+    });
+    const save = async on => {
+      const cfg = { on, grace: +$("fxGrace").value, research: +$("fxRes").value };
+      const { data, error } = await sb.rpc("set_focus", { p_session: P.s.id, p_focus: cfg });
+      if (error) return toast(errText(error, "Couldn't change Focus mode."));
+      P.channel?.send({ type: "broadcast", event: "focus", payload: {} }); stFlash(on ? "🎯 Focus mode on" : "Focus mode off");
+      if (!on) { P.away?.clear(); drawAlerts(); }
+      loadFocus();
+    };
+    $("fxToggle")?.addEventListener("click", () => save(!f.on));
+    $("fxSave")?.addEventListener("click", () => save(true));
+  }
+  function openFocus() {
+    if (!P) return; const box = $("stFocus");
+    if (!box.hidden) { box.hidden = true; return; }
+    $("stage").style.setProperty("--gb", $("stage").classList.contains("fs") ? "0px" : $("stDock").offsetHeight + "px");
+    box.hidden = false; drawFocusPanel(); loadFocus();
+    clearInterval(P.fxPanelTimer); P.fxPanelTimer = setInterval(() => { if (!P || box.hidden) return clearInterval(P?.fxPanelTimer); if (!box.querySelector("select:focus")) drawFocusPanel(); }, 2000);
+  }
+  $("stFocusBtn").addEventListener("click", openFocus);
+
   // ---------- writing board ----------
   async function slideCanvas(n, width = 1600) {
     if (!P?.pdf) return null;
@@ -1808,6 +1901,8 @@
     else if (e.key === "Escape" && !$("stRemote").hidden) $("stRemote").hidden = true;
     else if (e.key === "Escape" && !$("stShare").hidden) $("stShare").hidden = true;
     else if (e.key === "u" || e.key === "U") $("stGroupsBtn").click();
+    else if (e.key === "o" || e.key === "O") openFocus();
+    else if (e.key === "Escape" && !$("stFocus").hidden) $("stFocus").hidden = true;
     else if (e.key === "Escape" && !$("stGroups").hidden) closeGroups();
     poke();
   });

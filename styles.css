@@ -934,3 +934,19 @@ table.t tbody tr:last-child td{border-bottom:0}
 .libitem{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 12px;cursor:pointer;font:inherit;color:inherit}
 .libitem:hover{border-color:var(--ink)}
 .libitem small{display:block;color:var(--muted)}
+
+/* ---------- Focus mode (live screen) ---------- */
+#stFocusBtn{position:relative}
+#stFocusBtn.on{background:#1F5FBF;color:#fff;border-color:#1F5FBF}
+.fbadge{position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;border-radius:999px;background:#D2391F;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 5px}
+.st-alerts{position:absolute;bottom:calc(var(--dockh,64px) + 16px);right:18px;flex-direction:column-reverse;z-index:12;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none;max-width:min(420px,60vw)}
+.st-alert{background:#fff;color:#14161C;border-radius:14px;padding:10px 14px;font-size:15px;box-shadow:0 10px 30px rgba(0,0,0,.18);border-left:6px solid var(--ac,#D2391F);animation:alin .3s ease both}
+.st-alert.away{border-left-color:#D2391F;background:#FFF4F1}
+.st-alert.away.res{border-left-color:#1F5FBF;background:#EEF4FF}
+@keyframes alin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+.fxsel{margin-left:auto;padding:8px 10px;border-radius:10px;border:1px solid var(--sline);background:var(--sbg);color:var(--sfg);font:inherit;font-weight:700}
+.fxwrap{max-height:46vh;overflow:auto;border:1px solid var(--sline);border-radius:14px}
+.fxt{width:100%;border-collapse:collapse;font-size:15px}
+.fxt th{position:sticky;top:0;background:var(--spanel);text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--smuted);padding:8px 10px}
+.fxt td{padding:8px 10px;border-top:1px solid var(--sline)}
+.fxt td img{width:28px;height:28px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px}

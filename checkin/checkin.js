@@ -151,7 +151,7 @@
     $("rName").textContent = fullName(me.title, me.name);
     $("rPh").innerHTML = me.photo ? `<img src="${esc(me.photo)}" alt="">` : esc(initials(me.name));
     $("rIn").textContent = me.arrived_at ? "Checked in at " + fmtTime(me.arrived_at) : "";
-    loadTime(); loadCert();
+    loadTime(); loadCert(); loadFocus();
     loadGroup();
     await loadItems(); render(false);
     if (channel) return;
@@ -162,6 +162,7 @@
     channel.on("broadcast", { event: "eval" }, () => loadEval(true));
     channel.on("broadcast", { event: "certs" }, () => loadCert(true));
     channel.on("broadcast", { event: "groups" }, () => loadGroup(true));
+    channel.on("broadcast", { event: "focus" }, () => loadFocus(true));
     channel.on("broadcast", { event: "namecheck" }, () => loadCert(true, true));
     channel.on("broadcast", { event: "picked" }, ({ payload }) => {
       if (payload?.grp) {
@@ -213,6 +214,75 @@
     $("flyOk").onclick = () => ($("fly").hidden = true);
     clearTimeout(fly.t); fly.t = setTimeout(() => ($("fly").hidden = true), 20000);
   }
+  // ---------- focus mode ----------
+  let FOC = null, focOk = false, awayAt = 0, resUntil = 0, resTimer = null, focNote = "";
+  const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const nice = s => s < 60 ? `${s} seconds` : `${Math.floor(s / 60)} min ${s % 60 ? (s % 60) + " s" : ""}`.trim();
+  async function loadFocus(fresh) {
+    if (!me) return;
+    const { data, error } = await sb.rpc("my_focus", { p_code: code, p_token: me.token });
+    if (error || !data) { FOC = null; drawFocus(); return; }
+    const was = !!FOC; FOC = data.focus && data.focus.on && !ended ? data.focus : null; focOk = !!data.accepted;
+    if (!FOC) { resUntil = 0; focNote = ""; }
+    drawFocus(fresh && !was && FOC);
+  }
+  function drawFocus(alert) {
+    const bar = $("focBar"), ask = $("focAsk");
+    if (!FOC || ended) { bar.hidden = true; ask.hidden = true; return; }
+    if (!focOk) {
+      $("focCard").innerHTML = `<span class="lbl" style="color:#1F5FBF">🎯 Focus mode</span><h2 id="focT">Please stay on this page</h2>
+        <p>Your facilitator has turned on Focus mode for this part of the session.</p>
+        <ul><li>Keep Training Suite open on your phone.</li><li>If you leave it (another app, a chat, a call) for more than <b>${FOC.grace} seconds</b>, it's noted and your facilitator is told.</li>
+          ${FOC.research ? `<li>Need to look something up? Use <b>🔎 Research</b>: you get ${FOC.research} minutes that don't count as leaving.</li>` : ""}<li>Locking your phone also counts as leaving.</li></ul>
+        <button class="btn red" type="button" id="focYes">I accept</button>`;
+      ask.hidden = false; if (alert) buzz([60, 40, 60]);
+      $("focYes").onclick = async () => {
+        $("focYes").disabled = true;
+        const { error } = await sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "accept" });
+        if (error) { $("focYes").disabled = false; return; }
+        focOk = true; ask.hidden = true; channel?.send({ type: "broadcast", event: "focus_ok", payload: { participant: me.participant } }); drawFocus();
+      };
+      bar.hidden = true; return;
+    }
+    ask.hidden = true;
+    const left = Math.max(0, Math.round((resUntil - Date.now()) / 1000));
+    bar.innerHTML = `<b class="ft">🎯 Focus mode is on</b><span class="small">Stay on this page. Leaving for more than ${FOC.grace} seconds is noted.</span>
+      ${focNote ? `<div class="warnline">${esc(focNote)}</div>` : ""}
+      ${FOC.research ? (left ? `<span class="res">🔎 Research window: ${mmss(left)} left. Come back here when you're done.</span>`
+        : `<div class="row"><input id="focQ" placeholder="Look something up…" enterkeyhint="search" aria-label="Search the web"><button class="btn ghost small" type="button" id="focGo">🔎 Research (${FOC.research} min)</button></div>`) : ""}`;
+    bar.hidden = false;
+    const go = async () => {
+      const q = ($("focQ")?.value || "").trim();
+      resUntil = Date.now() + FOC.research * 60000;
+      sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "research" });
+      channel?.send({ type: "broadcast", event: "focus_research", payload: { participant: me.participant, name: fullName(me.title, me.name), minutes: FOC.research } });
+      window.open(q ? "https://www.google.com/search?q=" + encodeURIComponent(q) : "https://www.google.com/", "_blank", "noopener");
+      clearInterval(resTimer); resTimer = setInterval(() => { if (Date.now() > resUntil) { clearInterval(resTimer); resUntil = 0; } drawFocus(); }, 1000);
+      drawFocus();
+    };
+    $("focGo")?.addEventListener("click", go);
+    $("focQ")?.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  }
+  // Leaving and coming back: the page notices when it's hidden (another app, another tab, a locked screen).
+  function focusAway(hidden) {
+    if (!FOC || !focOk || ended || !me || !store.get("ts_in_" + code)) return;   // tapped out: not tracked
+    const now = Date.now();
+    if (hidden) {
+      if (awayAt) return; awayAt = now;
+      sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "out" });
+      channel?.send({ type: "broadcast", event: "focus_out", payload: { participant: me.participant, name: fullName(me.title, me.name), research: now < resUntil, until: resUntil, grace: FOC.grace } });
+    } else if (awayAt) {
+      const total = Math.round((now - awayAt) / 1000), inRes = Math.max(0, Math.round((Math.min(now, resUntil) - awayAt) / 1000)), secs = Math.max(0, total - inRes);
+      awayAt = 0;
+      sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "back", p_secs: secs, p_research: inRes });
+      channel?.send({ type: "broadcast", event: "focus_back", payload: { participant: me.participant, name: fullName(me.title, me.name), secs, research: inRes } });
+      if (secs > FOC.grace) { focNote = `You were away from Training Suite for ${nice(secs)}. This has been noted and your facilitator has been told.`; buzz([80, 40, 80]); }
+      drawFocus();
+    }
+  }
+  document.addEventListener("visibilitychange", () => focusAway(document.hidden));
+  addEventListener("pagehide", () => focusAway(true));
+
   // ---------- my group ----------
   let GRP = null;
   async function loadGroup(fresh) {
@@ -572,6 +642,7 @@
       ${d.spent_seconds != null ? `<div class="pp"><div><span class="small">Time in the session</span><b>${hm(d.spent_seconds)}</b></div><div><span class="small">Time away</span><b>${hm(d.away_seconds || 0)}</b></div></div>` : ""}
       <span class="small" style="color:#C9CEC6">Your items stay on this page${sess.closes_at ? " until " + new Date(sess.closes_at).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" }) : ""}.</span>`;
     $("nowTxt").textContent = "The session has ended";
+    FOC = null; drawFocus();
     loadLearning(); loadPart(); loadEval(true); loadCert(); buzz([30, 40, 60]);
   }
 
