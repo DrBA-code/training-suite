@@ -77,7 +77,8 @@ window.TSA = (() => {
       <label class="fld">Title<input data-b="title" value="${esc(B.title)}" placeholder="${esc(k.name)}"></label>
       ${o.aiWrite && kind !== "spot" ? `<div class="aiw"><span class="aiw-l">✨ Draft with AI</span><select data-b="aicount" aria-label="How many">${[1, 2, 3, 5, 8, 10].map(n => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select><input data-b="ainotes" placeholder="Anything to focus on? (optional)" aria-label="Notes for the AI"><button class="btn small" type="button" data-b="ai">Write ${PROMPTY(kind) ? "prompts" : "questions"}</button></div>` : ""}
       <div class="bsteps" data-b="steps"></div>
-      <div class="row"><button class="btn ghost small" type="button" data-b="add">+ Add ${PROMPTY(kind) ? "another prompt" : "question"}</button></div>
+      <div class="row"><button class="btn ghost small" type="button" data-b="add">+ Add ${PROMPTY(kind) ? "another prompt" : "question"}</button>${o.library ? `<button class="btn ghost small" type="button" data-b="libadd">📚 Add from Library</button><button class="btn ghost small" type="button" data-b="libsave">Save to Library</button>` : ""}</div>
+      <div class="libpick" data-b="libpick" hidden></div>
       <label class="fld" style="max-width:260px">Time per ${PROMPTY(kind) ? "prompt" : "question"}<select data-b="sec">${SECS.map(s => `<option value="${s}" ${s === B.seconds ? "selected" : ""}>${s ? (s >= 60 ? s / 60 + " min" : s + " seconds") : "No timer"}</option>`).join("")}</select></label>
       <div class="wfoot"><button class="btn ghost" type="button" data-b="cancel">Cancel</button><div class="row"><span class="err" data-b="err" role="status"></span><button class="btn red" type="button" data-b="save">Save questions</button></div></div></div>`;
     const q = s => el.querySelector(`[data-b="${s}"]`), stepsEl = q("steps"), errEl = q("err");
@@ -130,6 +131,27 @@ window.TSA = (() => {
       b.disabled = false;
     });
     q("sec").addEventListener("change", e => (B.seconds = +e.target.value));
+    // Library: reuse question sets and case studies from earlier sessions
+    q("libadd")?.addEventListener("click", async () => {
+      const box = q("libpick"); if (!box.hidden) { box.hidden = true; return; }
+      box.hidden = false; box.innerHTML = `<span class="small muted">Loading your Library…</span>`;
+      let items = []; try { items = await o.library.list(kind); } catch (e) { box.innerHTML = `<span class="err">${esc(e.message || "Couldn't load the Library.")}</span>`; return; }
+      box.innerHTML = items.length ? `<b>Add from your Library</b>${items.map((it, i) => `<button type="button" class="libitem" data-li="${i}"><span><b>${esc(it.title)}</b><small>${esc((KINDS[it.kind] || {}).name || it.kind)} · ${(it.data?.steps || []).length} ${PROMPTY(it.kind) ? "prompt" : "question"}${(it.data?.steps || []).length === 1 ? "" : "s"}</small></span><span class="ok">Add</span></button>`).join("")}`
+        : `<span class="small muted">Nothing in your Library for this kind of activity yet. Save questions here with “Save to Library”, and they'll be ready for any session.</span>`;
+      box.querySelectorAll("[data-li]").forEach(b => b.addEventListener("click", () => {
+        const it = items[+b.dataset.li], ok = (it.data?.steps || []).map(st => normalise(kind, st)).filter(Boolean);
+        const blank = B.steps.length === 1 && !String(B.steps[0].q || "").trim();
+        B.steps = blank ? ok : B.steps.concat(ok); if (blank && !B.title && it.title) { B.title = it.title; q("title").value = it.title; }
+        box.hidden = true; draw(); errEl.textContent = `${ok.length} added from “${it.title}”. Save to keep them.`; o.library.used && o.library.used(it.id);
+      }));
+    });
+    q("libsave")?.addEventListener("click", async () => {
+      const [steps, err] = clean(kind, B.steps);
+      if (err) { errEl.textContent = err; return; }
+      errEl.textContent = "Saving to your Library…";
+      try { await o.library.save({ kind, title: B.title.trim() || k.name, steps, seconds: B.seconds }); errEl.textContent = "Saved to your Library ✓ You can add it to any session."; }
+      catch (e) { errEl.textContent = (e && e.message) || "Couldn't save to the Library."; }
+    });
     q("add").addEventListener("click", () => { B.steps.push(blankStep(kind)); draw(); stepsEl.lastElementChild?.querySelector("textarea")?.focus(); });
     q("cancel").addEventListener("click", () => o.onCancel && o.onCancel());
     q("save").addEventListener("click", async () => {
@@ -176,6 +198,7 @@ window.TSA = (() => {
   // Bring an AI-drafted item into the builder's shape (or drop it).
   function normalise(kind, st) {
     if (!st || typeof st !== "object") return null;
+    if (kind === "spot") return st.q && st.image ? { ...st } : null;
     const k = KINDS[kind], out = { ...blankStep(kind), q: String(st.q || "").slice(0, 500) };
     if (!out.q) return null;
     if (k.opts) {

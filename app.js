@@ -167,7 +167,8 @@
   const query = () => new URLSearchParams(location.hash.split("?")[1] || "");
   async function route() {
     if (/access_token|error_description/.test(location.hash)) return;   // Supabase is finishing a sign-in link
-    const [r, arg] = parts();
+    const [r, arg, arg2] = parts();
+    document.body.classList.toggle("reporting", r === "report");
     if (!sb) { $("landing").hidden = false; return; }
     const st = accountState(profile);
     if (st === "none") {
@@ -182,9 +183,9 @@
     $("landing").hidden = true; $("auth").hidden = true; $("shell").hidden = false;
     $("meName").textContent = profile.full_name || profile.email;
     $("meRole").textContent = (profile.role === "programme_lead" ? "Programme Lead" : "Course Lead") + (profile.plan ? " · " + profile.plan : "");
-    document.querySelectorAll("#mainNav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === r || (r === "session" && a.dataset.nav === "sessions") || (r === "people" && a.dataset.nav === "programmes") ? "page" : "false"));
+    document.querySelectorAll("#mainNav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === r || (r === "session" && a.dataset.nav === "sessions") || (r === "people" && a.dataset.nav === "programmes") || (r === "report" && a.dataset.nav === "reports") ? "page" : "false"));
     if (!loaded) await loadData();
-    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), people: () => viewPeople(arg), present: () => viewPresent(arg), library: () => viewSoon("Library", "Collections of ready-made questions, case studies, slides and evaluation templates you can drop into any session."), reports: () => viewSoon("Reports", "Cross-session reports for your programmes: attendance, learning achievement and evaluation, ready to print or send."), settings: viewSettings };
+    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), people: () => viewPeople(arg), present: () => viewPresent(arg), library: viewLibrary, reports: viewReports, report: () => viewReport(arg, arg2), settings: viewSettings };
     (V[r] || viewDashboard)();
     $("view").focus({ preventScroll: true }); scrollTo({ top: 0 });
   }
@@ -260,6 +261,78 @@
     });
   }
 
+  // ---------- library ----------
+  const LIBKIN = k => (["quiz", "test", "buzz", "battle"].includes(k) ? ["quiz", "test", "buzz", "battle"] : ["poll", "finger"].includes(k) ? ["poll", "finger"] : [k]);
+  const libMissing = e => /library_items|schema cache|does not exist/i.test((e && e.message) || "");
+  const LIB = {
+    async list(kind) {
+      const { data, error } = await sb.from("library_items").select("*").order("updated_at", { ascending: false });
+      if (error) throw new Error(libMissing(error) ? "The Library isn't set up yet: run supabase/schema-13-step7.sql in Supabase." : errText(error, "Couldn't load the Library."));
+      return (data || []).filter(x => !kind || LIBKIN(kind).includes(x.kind));
+    },
+    async save(it) {
+      const { error } = await sb.from("library_items").insert({ kind: it.kind, title: it.title, data: it.data || { steps: it.steps, seconds: it.seconds } });
+      if (error) throw new Error(libMissing(error) ? "The Library isn't set up yet: run supabase/schema-13-step7.sql in Supabase." : errText(error, "Couldn't save to the Library."));
+    },
+    used(id) { sb.from("library_items").select("uses").eq("id", id).single().then(({ data }) => data && sb.from("library_items").update({ uses: (data.uses || 0) + 1 }).eq("id", id)); }
+  };
+  const LIBTABS = [["all", "Everything"], ["questions", "Questions"], ["case", "Case studies"], ["prompts", "Polls and prompts"], ["evaluation", "Evaluation forms"]];
+  const libTab = k => k === "evaluation" ? "evaluation" : k === "case" ? "case" : ["quiz", "test", "buzz", "battle", "short", "order", "match", "spot"].includes(k) ? "questions" : "prompts";
+  let libView = "all", libQ = "", libOpen = null;
+  async function viewLibrary() {
+    V(head("Library", "Your Library", "") + `<p class="muted" style="margin-top:-14px;max-width:72ch">Question sets, case studies and evaluation forms you've kept for reuse. Add to it with <b>Save to Library</b> when writing questions or editing an evaluation; use it with <b>📚 Add from Library</b>.</p><div id="libBox"><p class="muted">Loading…</p></div>`);
+    let items; try { items = await LIB.list(); } catch (e) { $("libBox").innerHTML = `<p class="note warn">${esc(e.message)}</p>`; return; }
+    const draw = () => {
+      const q = libQ.trim().toLowerCase(), list = items.filter(x => (libView === "all" || libTab(x.kind) === libView) && (!q || x.title.toLowerCase().includes(q) || JSON.stringify(x.data).toLowerCase().includes(q)));
+      const kname = k => k === "evaluation" ? "Evaluation form" : TSA.KINDS[k]?.name || k;
+      const count = x => x.kind === "evaluation" ? `${(x.data.items || []).length} questions` : `${(x.data.steps || []).length} ${TSA.PROMPTY(x.kind) ? "prompt" : "question"}${(x.data.steps || []).length === 1 ? "" : "s"}`;
+      const preview = x => x.kind === "evaluation" ? `<ol>${(x.data.items || []).map(i => `<li>${esc(i.text)} <small class="muted">${esc(TSE.TYPES[i.type] || "")}</small></li>`).join("")}</ol>`
+        : `<ol>${(x.data.steps || []).map(st => `<li>${esc(st.q)}${st.options ? `<small class="muted"> · ${st.options.map((o, j) => j === st.correct ? `<b>${esc(o)} ✓</b>` : esc(o)).join(" · ")}</small>` : ""}${st.text ? `<div class="small muted" style="white-space:pre-wrap">${esc(st.text.slice(0, 400))}${st.text.length > 400 ? "…" : ""}</div>` : ""}</li>`).join("")}</ol>`;
+      $("libBox").innerHTML = `<div class="row" style="justify-content:space-between"><div class="tabbar" role="tablist">${LIBTABS.map(([k, t]) => `<button type="button" role="tab" aria-selected="${libView === k}" data-lt="${k}">${t}</button>`).join("")}</div>
+          <input class="in" id="libQ" placeholder="Search titles and questions" value="${esc(libQ)}" style="max-width:300px"></div>
+        <div class="libgrid">${list.map(x => `<div class="libcard"><div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap"><div style="min-width:0"><span class="lbl">${esc(kname(x.kind))}</span><b class="libt" data-ren="${x.id}" title="Rename">${esc(x.title)}</b><span class="small muted">${count(x)} · used ${x.uses || 0}× · ${esc(fmtDate(String(x.updated_at).slice(0, 10)))}</span></div></div>
+            <div class="row"><button class="btn ghost small" type="button" data-pv="${x.id}">${libOpen === x.id ? "Hide" : "Preview"}</button><button class="btn ghost small" type="button" data-rn="${x.id}">Rename</button><button class="btn danger small" type="button" data-ld="${x.id}">Delete</button></div>
+            ${libOpen === x.id ? `<div class="libpv">${preview(x)}</div>` : ""}</div>`).join("") || `<div class="empty"><div><h2>${items.length ? "Nothing matches" : "Your Library is empty"}</h2><p class="muted">${items.length ? "Try another search or tab." : "Open a session's Assessments tab, write or open some questions, and press Save to Library."}</p></div></div>`}</div>`;
+      $("libBox").querySelectorAll("[data-lt]").forEach(b => (b.onclick = () => { libView = b.dataset.lt; draw(); }));
+      $("libQ").oninput = e => { libQ = e.target.value; const at = e.target.selectionStart; draw(); const i = $("libQ"); i.focus(); i.setSelectionRange(at, at); };
+      $("libBox").querySelectorAll("[data-pv]").forEach(b => (b.onclick = () => { libOpen = libOpen === b.dataset.pv ? null : b.dataset.pv; draw(); }));
+      $("libBox").querySelectorAll("[data-rn]").forEach(b => (b.onclick = async () => {
+        const x = items.find(i => i.id === b.dataset.rn), el = $("libBox").querySelector(`[data-ren="${x.id}"]`), inp = document.createElement("input");
+        inp.className = "in"; inp.value = x.title; inp.maxLength = 200; el.replaceWith(inp); inp.focus(); inp.select();
+        inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); if (e.key === "Escape") { inp.value = x.title; inp.blur(); } };
+        inp.onblur = async () => { const t = inp.value.trim(); if (t && t !== x.title) { const { error } = await sb.from("library_items").update({ title: t, updated_at: new Date().toISOString() }).eq("id", x.id); if (error) toast(errText(error, "Couldn't rename.")); else x.title = t; } draw(); };
+      }));
+      $("libBox").querySelectorAll("[data-ld]").forEach(b => (b.onclick = async () => {
+        if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to delete"; return; }
+        const { error } = await sb.from("library_items").delete().eq("id", b.dataset.ld);
+        if (error) return toast(errText(error, "Couldn't delete.")); items = items.filter(i => i.id !== b.dataset.ld); toast("Removed from your Library"); draw();
+      }));
+    };
+    draw();
+  }
+
+  // ---------- reports ----------
+  async function viewReport(kind, id) {
+    const s = kind === "s" ? sessions.find(x => x.id === id) : null, p = kind === "p" ? progs.find(x => x.id === id) : progs.find(x => x.id === s?.programme_id);
+    if (!p || (kind === "s" && !s)) return V(`<p class="muted">Report not found. <a href="#/reports">Back to reports</a></p>`);
+    V(`<div class="rbar no-print"><a class="btn ghost small" href="${kind === "s" ? "#/session/" + s.id : "#/reports"}">← Back</a><span class="small muted">Use your browser's print window to print it or choose “Save as PDF”.</span><button class="btn red small" type="button" id="rPrint">Print or save as PDF</button></div><div id="rBox"><p class="muted">Preparing the report…</p></div>`);
+    $("rPrint").onclick = () => window.print();
+    if (kind === "s") { const d = await TSR.sessionData(sb, s); if ($("rBox")) $("rBox").innerHTML = TSR.session(d, p); return; }
+    const list = sessions.filter(x => x.programme_id === p.id && x.status !== "draft").sort((a, b) => (a.session_date || "9999").localeCompare(b.session_date || "9999"));
+    const [datas, pc] = await Promise.all([Promise.all(list.map(x => TSR.sessionData(sb, x))), sb.rpc("programme_certificates", { p_programme: p.id }).then(r => r.data).catch(() => null)]);
+    if ($("rBox")) $("rBox").innerHTML = TSR.programme(p, datas, pc?.people || null);
+  }
+  function viewReports() {
+    const cards = progs.map(p => {
+      const ss = sessions.filter(x => x.programme_id === p.id && x.status !== "draft").sort((a, b) => (a.session_date || "9999").localeCompare(b.session_date || "9999"));
+      return `<section class="repcard"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><b style="font-family:var(--display);font-size:20px">${esc(p.name)}</b><span class="small muted" style="display:block">${esc([p.code, p.dates].filter(Boolean).join(" · ") || `${ss.length} session${ss.length === 1 ? "" : "s"}`)}${p.completed_at ? " · Completed" : ""}</span></div>
+        ${ss.length ? `<a class="btn small" href="#/report/p/${p.id}">Programme report</a>` : ""}</div>
+        ${ss.map(x => { const [t, c] = statusOf(x); return `<a class="srow" href="#/report/s/${x.id}"><span><b>${esc(x.topic)}</b><small>${esc(fmtDate(x.session_date))}</small></span><span class="badge ${c}">${t}</span><span class="ok">Session report →</span></a>`; }).join("") || `<p class="muted small">No sessions yet.</p>`}</section>`;
+    }).join("");
+    V(head("Reports", "Reports", "") + `<p class="muted" style="margin-top:-14px;max-width:72ch">A one-page report for every session, and a programme report that brings its sessions together: attendance, participation, learning achievement, evaluation and certificates. Open one, then print it or save it as PDF.</p>
+      <div style="display:flex;flex-direction:column;gap:14px">${cards || `<div class="empty"><div><h2>No programmes yet</h2><p class="muted">Reports appear once you have sessions.</p></div></div>`}</div>`);
+  }
+
   // ---------- programmes ----------
   const openProg = {};
   function progForm(p) {
@@ -283,7 +356,7 @@
           <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}${p.roster_only ? " · Registered list only" : ""}</span></span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}
           <span class="meta meta2">${ss.length} session${ss.length === 1 ? "" : "s"}</span><span class="sign">${open ? "HIDE −" : "SESSIONS +"}</span></button>
         ${open ? `<div class="inside">${ss.map(s => { const [t, c] = statusOf(s); return `<a class="srow" href="#/session/${s.id}"><span><b>${esc(s.topic)}</b><small>${esc(fmtDate(s.session_date))}${s.start_time ? " · " + esc(s.start_time) : ""}</small></span><span class="badge ${c}">${t}</span><span class="ok">Open →</span></a>`; }).join("") || `<p class="muted" style="padding:6px 0 12px">No sessions in this programme yet.</p>`}
-          <div class="row" style="margin-top:10px"><a class="btn ghost small" href="#/new?p=${p.id}">+ Add a session</a><a class="btn ghost small" href="#/people/${p.id}">Participants</a><a class="btn ghost small" href="#/programmes?edit=${p.id}">Edit programme</a><button class="btn danger small" type="button" data-del="${p.id}">Delete</button></div>
+          <div class="row" style="margin-top:10px"><a class="btn ghost small" href="#/new?p=${p.id}">+ Add a session</a><a class="btn ghost small" href="#/people/${p.id}">Participants</a><a class="btn ghost small" href="#/programmes?edit=${p.id}">Edit programme</a><button class="btn ghost small" type="button" data-again="${p.id}">↻ Run again for a new group</button><a class="btn ghost small" href="#/report/p/${p.id}">Programme report</a><button class="btn danger small" type="button" data-del="${p.id}">Delete</button></div>
           <div data-delbox="${p.id}"></div></div>` : ""}</section>`;
     }).join("");
     V(head("Programmes", "Your programmes", `<a class="btn" href="#/programmes?new=1">+ New programme</a>`) +
@@ -309,6 +382,27 @@
     }
     $("view").querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => { openProg[b.dataset.open] = !openProg[b.dataset.open]; viewProgrammes(); }));
     $("view").querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => confirmDelete(b.dataset.del)));
+    $("view").querySelectorAll("[data-again]").forEach(b => b.addEventListener("click", () => runAgain(b.dataset.again)));
+  }
+  // Run a programme again: everything except the people. The earlier run stays as it was.
+  function runAgain(id) {
+    const p = progs.find(x => x.id === id), box = document.querySelector(`[data-delbox="${id}"]`), ss = sessions.filter(s => s.programme_id === id);
+    const first = ss.map(s => s.session_date).filter(Boolean).sort()[0];
+    box.innerHTML = `<form class="confirm" style="margin-top:12px;border-color:var(--line-2)" novalidate><b>Run “${esc(p.name)}” again for a new group</b>
+      <span class="small muted">Copies its ${ss.length} session${ss.length === 1 ? "" : "s"} with slides, files, questions, flow, evaluation, groups plan and certificate design. No participants, attendance, answers or certificates are copied, and this run stays exactly as it is.</span>
+      <div class="grid2"><label class="fld full">Name of the new run<input name="n" value="${esc(p.name)} (new group)"></label>
+        <label class="fld">Programme code<input name="c" value="${esc(p.code)}"></label><label class="fld">Dates<input name="d" placeholder="e.g. 10 to 14 November 2026"></label>
+        <label class="fld">First session date<span class="hint">${first ? "Later sessions keep the same gaps between them. Leave empty to set dates yourself." : "Optional."}</span><input type="date" name="s"></label></div>
+      <div class="row"><button class="btn red small" type="submit">Create the new run</button><button class="btn ghost small" type="button" data-x>Cancel</button><span class="err"></span></div></form>`;
+    const f = box.firstElementChild; f.n.focus(); f.n.select();
+    f.querySelector("[data-x]").onclick = () => (box.innerHTML = "");
+    f.addEventListener("submit", async e => {
+      e.preventDefault(); const er = f.querySelector(".err"); er.className = "upmsg"; er.textContent = "Copying…";
+      const { data, error } = await sb.rpc("copy_programme", { p_programme: id, p_name: f.n.value.trim(), p_code: f.c.value.trim(), p_dates: f.d.value.trim(), p_start: f.s.value || null });
+      if (error) { er.className = "err"; er.textContent = /function|schema cache/i.test(error.message || "") ? "Run supabase/schema-13-step7.sql in Supabase first." : errText(error, "Couldn't copy the programme."); return; }
+      await loadData(); openProg[data] = true; openProg[id] = false;
+      toast("New run created. Its sessions are ready, each with a new check-in code."); viewProgrammes();
+    });
   }
   function confirmDelete(id) {
     const p = progs.find(x => x.id === id), box = document.querySelector(`[data-delbox="${id}"]`);
@@ -718,6 +812,8 @@
       body = `<div id="evBox"><p class="muted">Loading…</p></div>`;
     } else if (sessTab === "certs") {
       body = `<div id="certBox"><p class="muted">Loading…</p></div>`;
+    } else if (sessTab === "report") {
+      body = `<div class="row no-print" style="justify-content:space-between"><p class="muted" style="margin:0">A one-page summary for your records or your director.</p><a class="btn red small" href="#/report/s/${s.id}">Open to print or save as PDF</a></div><div id="repBox"><p class="muted">Preparing the report…</p></div>`;
     } else {
       const M = { report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
@@ -738,6 +834,7 @@
     if (sessTab === "learning") drawLearning(s);
     if (sessTab === "particip") drawParticipation(s);
     if (sessTab === "evaluation") drawEvaluation(s);
+    if (sessTab === "report") TSR.sessionData(sb, s).then(d => { const b = $("repBox"); if (b) b.innerHTML = TSR.session(d, p); });
     if (sessTab === "certs" && p.id) TSCU.tab($("certBox"), { sb, profile, toast, errText, programme: p, sessions, session: s, save: saveProgramme(p.id), notify: () => notifyCerts(p.id) });
     if (sessTab === "details") fillThumbs($("view"));
     $("endRun")?.addEventListener("click", () => {
@@ -758,7 +855,9 @@
     }));
     $("delGo")?.addEventListener("click", async () => {
       if ($("delIn").value.trim().toLowerCase() !== s.topic.toLowerCase()) return ($("delErr").textContent = "The topic doesn't match.");
-      if ((s.files || []).length) await sb.storage.from("session-files").remove(s.files.map(f => f.path));
+      const paths = [];
+      for (const f of (s.files || []).filter(f => f.path)) { const { data: used } = await sb.rpc("file_in_use", { p_path: f.path, p_except: s.id }); if (!used) paths.push(f.path); }
+      if (paths.length) await sb.storage.from("session-files").remove(paths);
       const { error } = await sb.from("sessions").delete().eq("id", id);
       if (error) return ($("delErr").textContent = errText(error, "Couldn't delete."));
       sessions = sessions.filter(x => x.id !== id); toast("Session deleted"); location.hash = "#/sessions";
@@ -948,7 +1047,7 @@
       const card = box.querySelector(`.actc[data-slot="${slot}"]`), body = card.querySelector(".actb"), a = list.find(x => x.slot === slot);
       body.hidden = false;
       TSA.builder(body, {
-        kind: slot, title: a?.title, steps: a?.data?.steps, seconds: a?.data?.seconds,
+        kind: slot, title: a?.title, steps: a?.data?.steps, seconds: a?.data?.seconds, library: LIB,
         aiWrite: async ({ kind, count, notes }) => {
           const r = await aiCall({ task: "write_questions", kind, count, notes, topic: s.topic, objectives: s.objectives || [s.main_topic, s.key_skill].filter(Boolean).join("; ") });
           if (r.error) throw new Error(r.error);
@@ -1035,7 +1134,8 @@
   function drawEvalEditor(s, items) {
     const box = $("evBox"); let list = structuredClone(items);
     const draw = () => {
-      box.innerHTML = `<div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Edit the evaluation questions</h2><div class="row"><button class="btn ghost small" type="button" id="eeReset">Back to the default 17</button></div></div>
+      box.innerHTML = `<div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Edit the evaluation questions</h2><div class="row"><button class="btn ghost small" type="button" id="eeLibAdd">📚 Use a form from Library</button><button class="btn ghost small" type="button" id="eeLibSave">Save form to Library</button><button class="btn ghost small" type="button" id="eeReset">Back to the default 17</button></div></div>
+        <div class="libpick" id="eeLib" hidden></div>
         <p class="muted small">Change the wording, the answer type, or add your own questions. The overall star rating feeds your dashboard.</p>
         <div class="eelist">${list.map((i, k) => `<div class="eerow"><span class="n">${k + 1}</span><input class="in" data-k="${k}" data-f="text" value="${esc(i.text)}" aria-label="Question ${k + 1}"><select class="in" data-k="${k}" data-f="type" aria-label="Answer type">${Object.entries(TSE.TYPES).map(([v, t]) => `<option value="${v}" ${i.type === v ? "selected" : ""}>${t}</option>`).join("")}</select><button class="x" type="button" data-del="${k}" aria-label="Remove question ${k + 1}">×</button></div>`).join("")}</div>
         <div class="row"><button class="btn ghost small" type="button" id="eeAdd">+ Add a question</button></div>
@@ -1045,6 +1145,18 @@
       box.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => { list.splice(+b.dataset.del, 1); draw(); }));
       $("eeAdd").onclick = () => { list.push({ id: "q" + Date.now().toString(36), sec: "other", type: "agree", text: "" }); draw(); box.querySelector(".eerow:last-child input")?.focus(); };
       $("eeReset").onclick = () => { list = TSE.defaultForm(s); draw(); };
+      $("eeLibSave").onclick = async () => {
+        const clean = list.map(i => ({ ...i, text: String(i.text || "").trim() })).filter(i => i.text);
+        if (!clean.length) return ($("eeErr").textContent = "Add at least one question first.");
+        try { await LIB.save({ kind: "evaluation", title: `Evaluation: ${s.topic}`, data: { items: clean } }); $("eeErr").textContent = "Saved to your Library ✓ Rename it on the Library page."; }
+        catch (e) { $("eeErr").textContent = e.message; }
+      };
+      $("eeLibAdd").onclick = async () => {
+        const pk = $("eeLib"); if (!pk.hidden) { pk.hidden = true; return; } pk.hidden = false; pk.innerHTML = `<span class="small muted">Loading…</span>`;
+        let forms; try { forms = await LIB.list("evaluation"); } catch (e) { pk.innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+        pk.innerHTML = forms.length ? `<b>Use a form from your Library</b> <span class="small muted">It replaces the questions below.</span>${forms.map((f, i) => `<button type="button" class="libitem" data-ef="${i}"><span><b>${esc(f.title)}</b><small>${(f.data.items || []).length} questions</small></span><span class="ok">Use</span></button>`).join("")}` : `<span class="small muted">No evaluation forms in your Library yet. Save one with “Save form to Library”.</span>`;
+        pk.querySelectorAll("[data-ef]").forEach(b => (b.onclick = () => { const f = forms[+b.dataset.ef]; list = structuredClone(f.data.items || []); LIB.used(f.id); draw(); $("eeErr").textContent = `Using “${f.title}”. Save questions to keep it.`; }));
+      };
       $("eeCancel").onclick = () => drawEvaluation(s);
       $("eeSave").onclick = async () => {
         list = list.map(i => ({ ...i, text: String(i.text || "").trim() })).filter(i => i.text);
