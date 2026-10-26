@@ -195,12 +195,12 @@
     const list = items.filter(forMe);
     $("items").innerHTML = list.length ? list.map(i => `<a class="item${fresh && !seen.has(i.id) ? " new" : ""}" href="${esc(i.url)}" target="_blank" rel="noopener">
         <span class="ic">${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : i.kind === "link" ? (/youtu\.?be/i.test(i.url) ? "▶" : "LINK") : esc((i.name.split(".").pop() || "FILE").slice(0, 4).toUpperCase())}</span>
-        <span><b>${esc(i.name || "Item")}</b><small>${i.kind === "slide" ? "Slide" : i.kind === "link" ? "Link" : "File"} · ${fmtTime(i.at)}</small></span><span class="ok">Open</span></a>`).join("")
+        <span><b>${esc(i.name || "Item")}</b><small>${i.kind === "slide" ? (/^Board/.test(i.name) ? "Board" : "Slide") : i.kind === "link" ? "Link" : "File"} · ${fmtTime(i.at)}</small></span><span class="ok">Open</span></a>`).join("")
       : `<p class="muted">Nothing yet. When your facilitator shares a slide or a file, it lands here. Keep this page open.</p>`;
     list.forEach(i => seen.add(i.id)); store.set("ts_seen_" + code, [...seen].slice(-300));
   }
   function fly(i) {
-    $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">${i.kind === "slide" ? "A slide for you" : i.kind === "link" ? "A link for you" : "A file for you"}</span>${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : ""}<b style="font-family:var(--display);font-size:20px">${esc(i.name)}</b><div class="row"><a class="btn red" href="${esc(i.url)}" target="_blank" rel="noopener">Open</a><button class="btn ghost" type="button" id="flyOk">Keep in My items</button></div>`;
+    $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">${i.kind === "slide" ? (/^Board/.test(i.name) ? "From the board" : "A slide for you") : i.kind === "link" ? "A link for you" : "A file for you"}</span>${i.kind === "slide" ? `<img src="${esc(i.url)}" alt="">` : ""}<b style="font-family:var(--display);font-size:20px">${esc(i.name)}</b><div class="row"><a class="btn red" href="${esc(i.url)}" target="_blank" rel="noopener">Open</a><button class="btn ghost" type="button" id="flyOk">Keep in My items</button></div>`;
     $("fly").hidden = false; buzz([30, 40, 60]);
     $("flyOk").onclick = () => ($("fly").hidden = true);
     clearTimeout(fly.t); fly.t = setTimeout(() => ($("fly").hidden = true), 20000);

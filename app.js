@@ -1171,12 +1171,12 @@
     P = null;
   }
   function exitPresent(to) {
-    const id = P?.s.id; stopPresent();
+    const id = P?.s.id; window.TSB?.close(); stopPresent();
     $("stage").hidden = true; document.body.style.overflow = "";
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     location.hash = to || "#/session/" + id;
   }
-  addEventListener("hashchange", () => { if (P && !/^#\/present\//.test(location.hash)) { stopPresent(); $("stage").hidden = true; document.body.style.overflow = ""; } });
+  addEventListener("hashchange", () => { if (P && !/^#\/present\//.test(location.hash)) { window.TSB?.close(); stopPresent(); $("stage").hidden = true; document.body.style.overflow = ""; } });
   async function loadPdf(path) {
     try {
       const { data, error } = await sb.storage.from("session-files").createSignedUrl(path, 4 * 3600);
@@ -1468,6 +1468,32 @@
   $("stPrev").addEventListener("click", () => P && goItem(P.i - 1));
   $("stNext").addEventListener("click", () => { if (!P) return; if (P.i >= P.items.length - 1) finishSession(); else goItem(P.i + 1); });
   $("stShareBtn").addEventListener("click", () => P && openShare());
+  // ---------- writing board ----------
+  async function slideCanvas(n, width = 1600) {
+    if (!P?.pdf) return null;
+    const page = await P.pdf.getPage(n), v1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: width / v1.width });
+    const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport: vp }).promise; return c;
+  }
+  function toggleBoard() {
+    if (!P) return;
+    if (TSB.isOpen()) { TSB.close(); return; }
+    TSB.show({
+      host: $("stage"), id: P.s.id, bottom: () => ($("stage").classList.contains("fs") ? 0 : $("stDock").offsetHeight),
+      slideNow: () => (P.items[P.i]?.t === "slide" ? P.items[P.i].n : 0),
+      slideImage: n => slideCanvas(n),
+      share: async (blob, name, target) => {
+        const dest = `${profile.id}/${P.s.id}/board-${crypto.randomUUID()}.jpg`;
+        const up = await sb.storage.from("ts-shared").upload(dest, blob, { contentType: "image/jpeg" });
+        if (up.error) throw up.error;
+        await share("slide", name, sb.storage.from("ts-shared").getPublicUrl(dest).data.publicUrl, target);
+      },
+      onClose: () => $("stBoardBtn").setAttribute("aria-pressed", "false")
+    });
+    $("stBoardBtn").setAttribute("aria-pressed", "true");
+  }
+  $("stBoardBtn").addEventListener("click", toggleBoard);
   // the session flow strip only appears when you ask for it
   function flowStrip(on) { $("stage").style.setProperty("--dockh", $("stDock").offsetHeight + "px"); $("stStrip").hidden = !on; $("stFlowBtn").setAttribute("aria-expanded", on); if (on) document.querySelector("#stStrip .on")?.scrollIntoView({ block: "nearest", inline: "center" }); }
   $("stFlowBtn").addEventListener("click", () => flowStrip($("stStrip").hidden));
@@ -1482,6 +1508,7 @@
   // One set of commands for the keyboard, hand gestures and the phone remote.
   function cmd(c) {
     if (!P) return;
+    if (window.TSB?.isOpen() && c !== "blank" && c !== "spin") { if (c === "next") TSB.page(1); else if (c === "prev") TSB.page(-1); return; }
     if (P.blank && c !== "blank") { setBlank(false); return; }
     if (c === "spin") { if ($("stWheel").hidden) openWheel(); else $("wGo")?.click(); }
     else if (c === "blank") setBlank(!P.blank);
@@ -1493,6 +1520,8 @@
   }
   document.addEventListener("keydown", e => {
     if (!P || $("stage").hidden || e.target.closest("input,textarea,select")) return;
+    if (e.key === "k" || e.key === "K") { e.preventDefault(); toggleBoard(); return; }
+    if (window.TSB?.isOpen()) return;   // the board has its own keys
     if ((e.key === " " || e.key === "Enter") && e.target.closest("button") && e.target.closest(".lv,.st-card,.st-share,.st-wheel")) return;   // a focused button acts itself
     if (e.key === " " || e.key === "Enter") { e.preventDefault(); cmd("step"); }
     else if (["ArrowRight", "PageDown"].includes(e.key)) { e.preventDefault(); cmd("next"); }
