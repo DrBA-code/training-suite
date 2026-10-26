@@ -215,7 +215,13 @@
     clearTimeout(fly.t); fly.t = setTimeout(() => ($("fly").hidden = true), 20000);
   }
   // ---------- focus mode ----------
-  let FOC = null, focOk = false, awayAt = 0, resUntil = 0, resTimer = null, focNote = "";
+  let FOC = null, focOk = false, awayAt = 0, resUntil = 0, resTimer = null, focNote = "", wake = null;
+  // Watched only while a question is open, unless the facilitator chose the whole session.
+  const watching = () => !!(FOC && focOk && !ended && (FOC.scope === "session" || cur?.phase === "open"));
+  // While watched, ask the phone to keep its screen on, so it never sleeps by itself.
+  async function wakeOn() { if (wake || !("wakeLock" in navigator) || document.hidden) return; try { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => { wake = null; }); } catch {} }
+  function wakeOff() { try { wake && wake.release(); } catch {} wake = null; }
+  function focusWatch() { if (watching()) wakeOn(); else wakeOff(); drawFocus(); }
   const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const nice = s => s < 60 ? `${s} seconds` : `${Math.floor(s / 60)} min ${s % 60 ? (s % 60) + " s" : ""}`.trim();
   async function loadFocus(fresh) {
@@ -224,7 +230,7 @@
     if (error || !data) { FOC = null; drawFocus(); return; }
     const was = !!FOC; FOC = data.focus && data.focus.on && !ended ? data.focus : null; focOk = !!data.accepted;
     if (!FOC) { resUntil = 0; focNote = ""; }
-    drawFocus(fresh && !was && FOC);
+    drawFocus(fresh && !was && FOC); focusWatch();
   }
   function drawFocus(alert) {
     const bar = $("focBar"), ask = $("focAsk");
@@ -232,8 +238,9 @@
     if (!focOk) {
       $("focCard").innerHTML = `<span class="lbl" style="color:#1F5FBF">🎯 Focus mode</span><h2 id="focT">Please stay on this page</h2>
         <p>Your facilitator has turned on Focus mode for this part of the session.</p>
-        <ul><li>Keep Training Suite open on your phone.</li><li>If you leave it (another app, a chat, a call) for more than <b>${FOC.grace} seconds</b>, it's noted and your facilitator is told.</li>
-          ${FOC.research ? `<li>Need to look something up? Use <b>🔎 Research</b>: you get ${FOC.research} minutes that don't count as leaving.</li>` : ""}<li>Locking your phone also counts as leaving.</li></ul>
+        <ul>${FOC.scope === "session" ? `<li>Keep Training Suite open on your phone for the rest of the session.</li>` : `<li>It applies <b>only while a question or test is open</b> on your phone. The rest of the time, use your phone as you like.</li>`}
+          <li>While it applies, your screen stays on, and if you go away from Training Suite (another app, a chat, a call, or locking the phone) for more than <b>${FOC.grace} seconds</b>, it's noted and your facilitator is told.</li>
+          ${FOC.research ? `<li>Need to look something up? Use <b>🔎 Research</b>: you get ${FOC.research} minutes that don't count.</li>` : ""}</ul>
         <button class="btn red" type="button" id="focYes">I accept</button>`;
       ask.hidden = false; if (alert) buzz([60, 40, 60]);
       $("focYes").onclick = async () => {
@@ -246,9 +253,10 @@
     }
     ask.hidden = true;
     const left = Math.max(0, Math.round((resUntil - Date.now()) / 1000));
-    bar.innerHTML = `<b class="ft">🎯 Focus mode is on</b><span class="small">Stay on this page. Leaving for more than ${FOC.grace} seconds is noted.</span>
+    const on = watching();
+    bar.innerHTML = `<b class="ft">🎯 Focus mode is on${FOC.scope === "session" ? "" : on ? " · applies now" : " · during questions"}</b><span class="small">${on ? `Stay on this page while you answer. Going away for more than ${FOC.grace} seconds is noted.` : "It applies only while a question or test is open. Your phone is yours till then."}</span>
       ${focNote ? `<div class="warnline">${esc(focNote)}</div>` : ""}
-      ${FOC.research ? (left ? `<span class="res">🔎 Research window: ${mmss(left)} left. Come back here when you're done.</span>`
+      ${FOC.research && on ? (left ? `<span class="res">🔎 Research window: ${mmss(left)} left. Come back here when you're done.</span>`
         : `<div class="row"><input id="focQ" placeholder="Look something up…" enterkeyhint="search" aria-label="Search the web"><button class="btn ghost small" type="button" id="focGo">🔎 Research (${FOC.research} min)</button></div>`) : ""}`;
     bar.hidden = false;
     const go = async () => {
@@ -268,7 +276,7 @@
     if (!FOC || !focOk || ended || !me || !store.get("ts_in_" + code)) return;   // tapped out: not tracked
     const now = Date.now();
     if (hidden) {
-      if (awayAt) return; awayAt = now;
+      if (awayAt || !watching()) return; awayAt = now;
       sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "out" });
       channel?.send({ type: "broadcast", event: "focus_out", payload: { participant: me.participant, name: fullName(me.title, me.name), research: now < resUntil, until: resUntil, grace: FOC.grace } });
     } else if (awayAt) {
@@ -277,10 +285,10 @@
       sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "back", p_secs: secs, p_research: inRes });
       channel?.send({ type: "broadcast", event: "focus_back", payload: { participant: me.participant, name: fullName(me.title, me.name), secs, research: inRes } });
       if (secs > FOC.grace) { focNote = `You were away from Training Suite for ${nice(secs)}. This has been noted and your facilitator has been told.`; buzz([80, 40, 80]); }
-      drawFocus();
+      focusWatch();
     }
   }
-  document.addEventListener("visibilitychange", () => focusAway(document.hidden));
+  document.addEventListener("visibilitychange", () => { focusAway(document.hidden); if (!document.hidden) focusWatch(); });
   addEventListener("pagehide", () => focusAway(true));
 
   // ---------- my group ----------
@@ -336,7 +344,7 @@
     if (moved || data.phase !== "open") draft = null;
     deadline = data.phase === "open" && data.left != null ? Date.now() + data.left * 1000 : 0;
     if (moved && data.phase === "open") buzz(30);
-    drawAct();
+    drawAct(); focusWatch();
   }
   const testName = c => c.kind === "test" ? (c.run === "pre" ? "Pre-test" : "Post-test") : (c.title || NAMES[c.kind]);
   function drawAct() {
@@ -642,7 +650,7 @@
       ${d.spent_seconds != null ? `<div class="pp"><div><span class="small">Time in the session</span><b>${hm(d.spent_seconds)}</b></div><div><span class="small">Time away</span><b>${hm(d.away_seconds || 0)}</b></div></div>` : ""}
       <span class="small" style="color:#C9CEC6">Your items stay on this page${sess.closes_at ? " until " + new Date(sess.closes_at).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" }) : ""}.</span>`;
     $("nowTxt").textContent = "The session has ended";
-    FOC = null; drawFocus();
+    FOC = null; wakeOff(); drawFocus();
     loadLearning(); loadPart(); loadEval(true); loadCert(); buzz([30, 40, 60]);
   }
 

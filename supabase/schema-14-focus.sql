@@ -5,7 +5,8 @@
 -- Run after schema-13-step7.sql. SQL Editor → New query → paste all → Run. Safe to run again.
 
 alter table public.programmes add column if not exists focus_allowed boolean not null default false;
--- { on: true, grace: 20 (seconds), research: 3 (minutes, 0 = no research window), since: time }
+-- { on: true, scope: 'activities' (only while a question is open on phones) | 'session' (all the time),
+--   grace: 30 (seconds), research: 3 (minutes, 0 = no research window), since: time }
 alter table public.sessions add column if not exists focus jsonb;
 alter table public.attendance
   add column if not exists focus_accepted_at timestamptz,
@@ -29,7 +30,8 @@ begin
   end if;
   f := case when p_focus is null then null else jsonb_build_object(
          'on', coalesce((p_focus->>'on')::boolean, false),
-         'grace', greatest(5, least(600, coalesce((p_focus->>'grace')::int, 20))),
+         'scope', case when p_focus->>'scope' = 'session' then 'session' else 'activities' end,
+         'grace', greatest(5, least(600, coalesce((p_focus->>'grace')::int, 30))),
          'research', greatest(0, least(30, coalesce((p_focus->>'research')::int, 3))),
          'since', case when coalesce((s.focus->>'on')::boolean, false) then s.focus->'since' else to_jsonb(now()) end) end;
   update public.sessions set focus = f where id = p_session;
@@ -56,7 +58,7 @@ begin
   select * into s from public.sessions where id = me.session_id;
   select * into a from public.attendance where session_id = me.session_id and participant_id = me.participant_id;
   if not coalesce((s.focus->>'on')::boolean, false) then return jsonb_build_object('on', false); end if;
-  grace := coalesce((s.focus->>'grace')::int, 20);
+  grace := coalesce((s.focus->>'grace')::int, 30);
   if p_kind = 'accept' then
     update public.attendance set focus_accepted_at = coalesce(focus_accepted_at, now()) where id = a.id;
   elsif p_kind = 'out' then

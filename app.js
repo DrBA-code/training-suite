@@ -1787,33 +1787,37 @@
     }).filter(a => a.researching || a.counted > grace).sort((x, y) => y.counted - x.counted);
     list.slice(0, 6).forEach(a => {
       const el = document.createElement("div"); el.className = "st-alert away" + (a.researching ? " res" : "");
-      el.innerHTML = a.researching ? `🔎 <b>${esc(a.name)}</b> is researching · ${mmss((a.until - now) / 1000)} left` : `⚠ <b>${esc(a.name)}</b> left Training Suite · ${mmss(a.counted / 1000)}`;
+      el.innerHTML = a.researching ? `🔎 <b>${esc(a.name)}</b> is researching · ${mmss((a.until - now) / 1000)} left` : `⚠ <b>${esc(a.name)}</b> away from Training Suite · ${mmss(a.counted / 1000)}`;
       box.prepend(el);
     });
     if (list.length > 6) { const el = document.createElement("div"); el.className = "st-alert away"; el.textContent = `and ${list.length - 6} more away`; box.appendChild(el); }
   }
   function drawFocusPanel() {
     const box = $("stFocus"), fx = P.fx; if (!fx) { box.innerHTML = `<div class="gform"><h2>Focus mode</h2><p>Focus mode isn't set up in the database yet: run supabase/schema-14-focus.sql in Supabase.</p><div class="row"><button type="button" class="key" data-fx>Close</button></div></div>`; box.querySelector("[data-fx]").onclick = () => (box.hidden = true); return; }
-    const f = fx.focus || { on: false, grace: 20, research: 3 }, rows = (fx.rows || []).filter(r => r.in_room), now = Date.now();
+    const saved = fx.focus || { on: false, scope: "activities", grace: 30, research: 3 }, f = { ...saved, ...(P.fxDraft || {}) }, rows = (fx.rows || []).filter(r => r.in_room), now = Date.now();
     const status = r => { const a = P.away?.get(r.participant); if (!a) return `<span class="ok">Here</span>`; if (a.research && now < a.until) return `<span style="color:#1F5FBF">Researching</span>`; return `<b style="color:#D2391F">Away ${mmss((now - a.since) / 1000)}</b>`; };
     box.innerHTML = `<div class="gform"><div class="row" style="justify-content:space-between"><h2>🎯 Focus mode</h2><button type="button" class="x" data-fx aria-label="Close">×</button></div>
       ${!fx.allowed ? `<div class="note warn" style="color:#14161C">Focus mode is off for this programme. <button type="button" class="key next" id="fxAllow">Allow Focus mode for this programme</button></div>` : `
-      <p class="st-mono">Phones are asked to accept. Leaving Training Suite for longer than the grace period is logged and shown here, with a timer. Locking the phone counts as leaving.</p>
-      <div class="gsize"><label class="gopt">Grace period <select id="fxGrace" class="fxsel">${[10, 20, 30, 60, 120].map(v => `<option value="${v}" ${f.grace === v ? "selected" : ""}>${v < 60 ? v + " seconds" : v / 60 + " minute" + (v > 60 ? "s" : "")}</option>`).join("")}</select></label>
+      <p class="st-mono">Phones are asked to accept. While Focus applies, their screens stay on, and going away from Training Suite for longer than the grace period is logged and shown here with a timer.</p>
+      <div class="gmeth" style="grid-template-columns:1fr 1fr">${[["activities", "During activities and tests", "Only while a question is open on phones. Between activities, phones are free."], ["session", "Whole session", "From now until you turn it off."]].map(([v, t, l]) => `<label class="gm"><input type="radio" name="fxScope" value="${v}" ${(f.scope || "activities") === v ? "checked" : ""}><b>${t}</b><span>${l}</span></label>`).join("")}</div>
+      <div class="gsize"><label class="gopt">Grace period <select id="fxGrace" class="fxsel">${[10, 20, 30, 60, 120].map(v => `<option value="${v}" ${(f.grace || 30) === v ? "selected" : ""}>${v < 60 ? v + " seconds" : v / 60 + " minute" + (v > 60 ? "s" : "")}</option>`).join("")}</select></label>
         <label class="gopt">Research window <select id="fxRes" class="fxsel">${[0, 2, 3, 5, 10].map(v => `<option value="${v}" ${(f.research ?? 3) === v ? "selected" : ""}>${v ? v + " minutes" : "Off"}</option>`).join("")}</select></label></div>
       <div class="row"><button type="button" class="key next big" id="fxToggle">${f.on ? "Turn Focus mode off" : "Turn Focus mode on"}</button>${f.on ? `<button type="button" class="key" id="fxSave">Save changes</button>` : ""}<span class="st-mono">${f.on ? `${rows.filter(r => r.accepted).length} of ${rows.length} accepted · ${P.away?.size || 0} away now` : ""}</span></div>
       ${rows.length ? `<div class="fxwrap"><table class="fxt"><thead><tr><th>Name</th><th>Accepted</th><th>Now</th><th>Times left</th><th>Time away</th><th>Research</th></tr></thead><tbody>
         ${rows.map(r => `<tr><td>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : ""}<b>${esc(r.name)}</b></td><td>${r.accepted ? "✓" : `<span style="color:#B8860B">Waiting</span>`}</td><td>${f.on && r.accepted ? status(r) : "–"}</td><td>${r.leaves || "–"}${r.short ? ` <small class="st-mono">(+${r.short} short)</small>` : ""}</td><td>${r.away ? mmss(r.away) : "–"}</td><td>${r.research || "–"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="st-mono">No one is checked in yet.</p>`}`}</div>`;
     box.querySelector("[data-fx]").onclick = () => (box.hidden = true);
+    const keep = () => { P.fxDraft = { scope: document.querySelector("[name=fxScope]:checked")?.value, grace: +$("fxGrace").value, research: +$("fxRes").value }; };
+    box.querySelectorAll("[name=fxScope],#fxGrace,#fxRes").forEach(el => el.addEventListener("change", keep));
     $("fxAllow")?.addEventListener("click", async () => {
       const { error } = await sb.from("programmes").update({ focus_allowed: true }).eq("id", P.s.programme_id);
       if (error) return toast(errText(error, "Couldn't change the programme."));
       progs = progs.map(x => x.id === P.s.programme_id ? { ...x, focus_allowed: true } : x); loadFocus();
     });
     const save = async on => {
-      const cfg = { on, grace: +$("fxGrace").value, research: +$("fxRes").value };
+      const cfg = { on, scope: document.querySelector("[name=fxScope]:checked")?.value || "activities", grace: +$("fxGrace").value, research: +$("fxRes").value };
       const { data, error } = await sb.rpc("set_focus", { p_session: P.s.id, p_focus: cfg });
       if (error) return toast(errText(error, "Couldn't change Focus mode."));
+      P.fxDraft = null;
       P.channel?.send({ type: "broadcast", event: "focus", payload: {} }); stFlash(on ? "🎯 Focus mode on" : "Focus mode off");
       if (!on) { P.away?.clear(); drawAlerts(); }
       loadFocus();
