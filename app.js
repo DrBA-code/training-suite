@@ -399,7 +399,7 @@
   // Save to the server as a draft: new sessions as soon as they have a programme and topic; drafts on every change.
   async function wizSaveServer() {
     if (!W || checkStep(0)) return;
-    if (W.existing && !W.draft) { wizStatus("Changes kept on this computer · press Save to publish them", true); return; }
+    if (W.existing && !W.draft) { wizStatus("Not saved yet · press Save changes to update the session", false); return; }
     syncFlow(); wizStatus("Saving…");
     const row = { ...wizRow(), status: "draft" };
     const res = W.existing ? await sb.from("sessions").update(row).eq("id", W.id).select().single() : await sb.from("sessions").insert(row).select().single();
@@ -413,6 +413,7 @@
     wizStatus("Draft saved ✓ " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), true);
   }
   function wizChanged() {
+    if (W && W.existing && !W.draft && !W.dirty) { W.dirty = true; const b = $("wSaveTop"); if (b) b.disabled = false; wizStatus("Changes not saved yet · press Save changes", false); }
     clearTimeout(wizTimer); clearTimeout(wizSrvTimer);
     wizTimer = setTimeout(() => { if (!W || !$("wSaved")) return; grabStep(); wizSaveLocal(); }, 300);
     wizSrvTimer = setTimeout(() => { if (W && $("wSaved")) wizSaveServer(); }, 2500);
@@ -548,14 +549,24 @@
           ${warn.map(([t, l, w]) => `<div class="note${w ? " warn" : ""}"><b style="display:block">${esc(t)}</b><span class="small muted">${esc(l)}</span></div>`).join("")}</div></div>`;
     }
     V(`<div class="pagehead"><div><span class="lbl">${W.existing ? (W.draft ? "Draft session" : "Edit session") : "New session"}</span><h1>${esc(STEPS[at][1])}</h1><span class="wsaved" id="wSaved">${W.restored ? "Picked up where you left off" : ""}</span></div>
-        <div class="row">${W.restored ? `<button class="btn ghost small" type="button" id="wFresh">${W.existing && !W.draft ? "Discard unsaved changes" : "Start over"}</button>` : ""}<a class="btn ghost small" href="${W.existing ? "#/session/" + W.id : "#/sessions"}">Close</a></div></div>
+        <div class="row" id="wHeadBtns">${W.restored ? `<button class="btn ghost small" type="button" id="wFresh">${W.existing && !W.draft ? "Discard unsaved changes" : "Start over"}</button>` : ""}${W.existing && !W.draft ? `<button class="btn red small" type="button" id="wSaveTop" ${W.dirty ? "" : "disabled"}>Save changes</button>` : ""}<button class="btn ghost small" type="button" id="wClose">Close</button></div></div>
       <ol class="wsteps" style="--n:${STEPS.length}" aria-label="Steps">${STEPS.map(([n], i) => `<li><button type="button" data-step="${i}" class="${i < at ? "done" : i === at ? "now" : ""}" ${i === at ? 'aria-current="step"' : ""}><span class="n">0${i + 1}</span><span>${n}</span></button></li>`).join("")}</ol>
       ${body}
       <div class="err" id="wErr" role="alert"></div>
       <div class="wfoot"><button class="btn ghost" type="button" id="wBack" ${at === 0 ? 'style="visibility:hidden"' : ""}>← Back</button>
-        <div class="row">${at === LAST ? `${!W.existing || W.draft ? `<button class="btn ghost" type="button" id="wDraft">Keep as draft</button>` : ""}<button class="btn red" type="button" id="wSave">${W.existing && !W.draft ? "Save session" : "Create session"}</button>` : `<button class="btn" type="button" id="wNext">Next: ${STEPS[at + 1][0]} →</button>`}</div></div>`);
+        <div class="row">${at === LAST ? `${!W.existing || W.draft ? `<button class="btn ghost" type="button" id="wDraft">Keep as draft</button>` : ""}<button class="btn red" type="button" id="wSave">${W.existing && !W.draft ? "Save session" : "Create session"}</button>` : `${W.existing && !W.draft ? `<button class="btn ghost" type="button" id="wSaveMid">Save changes</button>` : ""}<button class="btn" type="button" id="wNext">Next: ${STEPS[at + 1][0]} →</button>`}</div></div>`);
+    if (W.restored && W.existing && !W.draft) W.dirty = true;
     W.restored = false;
     wireWizard();
+    $("wSaveTop")?.addEventListener("click", () => saveWizard(false));
+    $("wSaveMid")?.addEventListener("click", () => saveWizard(false));
+    $("wClose").addEventListener("click", () => {
+      const back = W.existing ? "#/session/" + W.id : "#/sessions";
+      if (!(W.existing && !W.draft && W.dirty)) { location.hash = back; return; }
+      $("wHeadBtns").innerHTML = `<span class="small" style="font-weight:700">You have changes that aren't saved.</span><button class="btn red small" type="button" id="wCloseSave">Save and close</button><button class="btn ghost small" type="button" id="wCloseKeep">Close without saving</button>`;
+      $("wCloseSave").onclick = () => saveWizard(false);
+      $("wCloseKeep").onclick = () => { location.hash = back; };
+    });
     fillThumbs($("view"));
   }
   function go(i) {
@@ -711,7 +722,9 @@
       const M = { report: "A one-page summary of the session for your records or your director." };
       body = `<div class="empty"><div><h2>${esc(T.find(t => t[0] === sessTab)[1])}</h2><p class="muted">${esc(M[sessTab])} This fills in once the session has run, in the next phases.</p></div></div>`;
     }
-    V(`<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
+    let pending = null; try { pending = s.status !== "draft" && JSON.parse(localStorage.getItem(wizKey(s.id)) || "null"); } catch {}
+    const unsaved = pending && pending.dirty ? `<div class="note warn" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span><b>You have changes to this session that aren't saved yet</b> (activities, flow or details). The live screen uses the saved version.</span><a class="btn red small" href="#/edit/${s.id}">Open and save</a><button class="btn ghost small" type="button" id="dropPending">Discard them</button></div>` : "";
+    V(`${unsaved}<div class="pagehead"><div><span class="lbl">${esc(p.name || "")}</span><h1>${esc(s.topic)}</h1><span class="muted">${esc([s.course_lead && "Course lead: " + s.course_lead, fmtDate(s.session_date), s.start_time, s.venue].filter(Boolean).join(" · "))}</span></div>
         <div class="row"><span class="badge ${sc}" style="padding:10px 14px">${st}</span><a class="btn ghost small" href="#/edit/${s.id}">Edit</a>
         ${s.status === "completed" ? `<button class="btn ghost small" type="button" id="reopenRun">Reopen session</button>` : s.status === "live" ? `<a class="btn red" href="#/present/${s.id}">▶ Back to live screen</a><button class="btn ghost small" type="button" id="endRun">End session</button>` : `<button class="btn red" type="button" id="startRun">▶ Start session</button>`}</div></div>
       <div class="tabbar" role="tablist" aria-label="Session">${T.map(([k, n]) => `<button type="button" role="tab" aria-selected="${sessTab === k}" data-stab="${k}">${n}</button>`).join("")}</div>${body}`);
@@ -719,6 +732,7 @@
     v.querySelectorAll("[data-stab]").forEach(b => b.addEventListener("click", () => { sessTab = b.dataset.stab; viewSession(id); }));
     const save = async patch => { const { data, error } = await sb.from("sessions").update(patch).eq("id", id).select().single(); if (error) return toast(errText(error, "Couldn't update.")); sessions = sessions.map(x => x.id === id ? data : x); viewSession(id); };
     $("startRun")?.addEventListener("click", async () => { await save({ status: "live", progress: 0 }); location.hash = "#/present/" + id; });
+    $("dropPending")?.addEventListener("click", () => { wizForget(id); if (W && W.key === id) W = null; viewSession(id); });
     if (sessTab === "attendance") loadRegister(s);
     if (sessTab === "assess") drawActs(s);
     if (sessTab === "learning") drawLearning(s);
