@@ -90,15 +90,17 @@ window.TSG = (() => {
       } else pinchPrev = null;
       history = []; return;
     }
-    // grab (fist) and throw (open the hand): towards your left = Group A, right = Group B, straight = everyone
+    // grab (fist) and throw (open the hand). With onAim, moving the closed hand sideways picks a group tile; otherwise
+    // towards your left = Group A, right = Group B, straight = everyone
     if (o.canThrow()) {
       const fist = g && g.categoryName === "Closed_Fist" && g.score > 0.6;
       if (fist) {
         if (!grab.since) { grab.since = now; grab.x = x; }
         if (!grab.active && now - grab.since > 350) { grab.active = true; grab.x = x; o.onGrab(true); }
         grab.last = now;
+        if (grab.active && o.onAim) o.onAim(Math.max(0, Math.min(0.999, 0.5 + (grab.x - x) * 3)));
       } else if (grab.active && palm) {
-        const dx = x - grab.x, target = dx > 0.12 ? "A" : dx < -0.12 ? "B" : "all";
+        const dx = x - grab.x, target = o.onAim ? null : dx > 0.12 ? "A" : dx < -0.12 ? "B" : "all";
         grab = {}; o.onGrab(false); history = []; cooldownUntil = now + COOLDOWN_MS;
         o.onThrow(target); return;
       } else { grab.since = 0; if (grab.active && now - grab.last > 1500) { grab = {}; o.onGrab(false); } }

@@ -10,7 +10,7 @@ window.TSA = (() => {
     words:  { say: "Type a word or two on your phone. Popular answers grow bigger.", name: "Word cloud",      line: "Short answers grow on screen as people repeat them.", sec: 0, color: "#2747C8" },
     quiz:   { say: "Answer on your phone. Faster right answers score more.", name: "Quiz",            line: "Timed multiple choice. Faster right answers score more.", opts: true, scored: true, sec: 20, color: "#2747C8" },
     buzz:   { say: "Be the first to answer correctly on your phone!", name: "First to catch",  line: "The first correct answer wins the round.", opts: true, scored: true, sec: 0, color: "#F4B400" },
-    battle: { say: "Pick your group on your phone, then answer. Every right answer pulls the rope.", name: "Group battle",    line: "Group A against Group B, with a tug-of-war bar.", opts: true, scored: true, sec: 20, teams: true, color: "#14161C" },
+    battle: { say: "Answer on your phone. Every right answer moves your group forward.", name: "Group battle",    line: "Groups race to answer: a tug-of-war for two groups, a race for more.", opts: true, scored: true, sec: 20, teams: true, color: "#14161C" },
     order:  { say: "Put the steps in the right order on your phone.", name: "Order it",        line: "Put the steps of a process in the right order.", scored: true, sec: 60, color: "#D2391F" },
     match:  { say: "Match each term to its meaning on your phone.", name: "Match it",        line: "Pair each term with its meaning.", scored: true, sec: 60, color: "#2747C8" },
     spot:   { say: "Find the mistake in the picture and tap it on your phone.", name: "Spot the error",  line: "Participants tap the mistake on a picture.", scored: true, sec: 45, color: "#F4B400" },
@@ -214,11 +214,17 @@ window.TSA = (() => {
     const pct = x => Math.round((x || 0) * 100);
     const initials = n => String(n || "?").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
     const firstName = n => String(n || "").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(/\s+/)[0] || n;
+    // groups: the session's groups (1–12), or the older Group A / Group B
+    const GC = () => (o.groups && o.groups()) || null;
+    const teamKeys = () => (GC() && window.TSGR ? TSGR.keys(GC()) : ["A", "B"]);
+    const gName = k => (window.TSGR ? TSGR.name(GC(), k) : "Group " + k);
+    const gColor = k => (k === "A" ? "#1F5FBF" : k === "B" ? "#D2391F" : window.TSGR ? TSGR.color(k) : "#5B6170");
+    const teamPoints = () => { const t = {}; teamKeys().forEach(k => (t[k] = 0)); L.all.forEach(r => { if (t[r.grp] != null) t[r.grp] += r.points || 0; }); return t; };
     el.innerHTML = `<div class="lv">
       <div class="lv-top"><span class="lbl" style="color:var(--sacc)" data-l="kind"></span><span class="st-mono" data-l="step"></span><span class="lv-count"><b data-l="count">0</b> <span data-l="countLbl">answered</span></span></div>
       <div class="lv-bar"><button class="key" type="button" data-l="prev" aria-label="Previous question">◀ Q</button><button class="key next" type="button" data-l="main"></button><button class="key" type="button" data-l="nextq" aria-label="Next question">Q ▶</button>${boardOK ? `<button class="key" type="button" data-l="board">Leaderboard</button>` : ""}${o.ai && (kind === "case" || kind === "exit") ? `<button class="key ai" type="button" data-l="ai">✨ ${kind === "case" ? "AI review and feedback" : "AI summary"}</button>` : ""}<span class="st-mono">Space: next step</span></div>
       <div class="lv-timer" data-l="timer"><i></i></div>
-      <div class="lv-tug" data-l="tug" ${K.teams && kind !== "case" ? "" : "hidden"}><span>Group A <b data-l="tA">0</b></span><div class="track"><i data-l="tBar"></i><span class="mid"></span></div><span><b data-l="tB">0</b> Group B</span></div>
+      <div class="lv-teams" data-l="tug" ${K.teams && kind !== "case" ? "" : "hidden"}></div>
       <h2 class="lv-q" data-l="q"></h2><div class="lv-sub" data-l="sub"></div>
       <div class="lv-viz" data-l="viz"></div>
       <div class="lv-faces" data-l="faces" aria-hidden="true"></div>
@@ -318,11 +324,17 @@ window.TSA = (() => {
       $l("main").textContent = mainLabel();
       $l("prev").disabled = L.step === 0; $l("nextq").disabled = L.step >= steps.length - 1;
       if (!$l("tug").hidden) {
-        const t = { A: 0, B: 0 }; L.all.forEach(r => { if (r.grp === "A" || r.grp === "B") t[r.grp] += r.points || 0; });
-        $l("tA").textContent = t.A; $l("tB").textContent = t.B; $l("tBar").style.width = (t.A + t.B ? 15 + 70 * t.A / (t.A + t.B) : 50) + "%";
+        const t = teamPoints(), ks = teamKeys();
+        if (ks.length === 2) {   // two groups: tug-of-war
+          const [a, b] = ks, tot = t[a] + t[b];
+          $l("tug").innerHTML = `<div class="lv-tug"><span style="color:${gColor(a)}">${esc(gName(a))} <b>${t[a]}</b></span><div class="track" style="background:${gColor(b)}"><i style="width:${tot ? 15 + 70 * t[a] / tot : 50}%;background:${gColor(a)}"></i><span class="mid"></span></div><span style="color:${gColor(b)}"><b>${t[b]}</b> ${esc(gName(b))}</span></div>`;
+        } else {   // three or more: a race
+          const max = Math.max(1, ...ks.map(k => t[k])), lead = Math.max(...ks.map(k => t[k]));
+          $l("tug").innerHTML = `<div class="lv-race">${ks.map(k => `<div class="rr${t[k] && t[k] === lead ? " lead" : ""}"><span>${esc(gName(k))}</span><div class="rt"><i style="width:${Math.max(2, 100 * t[k] / max)}%;background:${gColor(k)}"></i></div><b>${t[k]}</b></div>`).join("")}</div>`;
+        }
       }
       const showFaces = !rev && !["words", "poll", "exit", "finger", "scale", "feedback"].includes(kind);
-      $l("faces").innerHTML = showFaces ? L.rows.slice(-60).map(r => `<span class="fc ${r.grp}">${r.photo ? `<img src="${esc(r.photo)}" alt="">` : esc(initials(r.name))}</span>`).join("") : "";
+      $l("faces").innerHTML = showFaces ? L.rows.slice(-60).map(r => `<span class="fc ${r.grp}"${r.grp !== "all" ? ` style="border-color:${gColor(r.grp)}"` : ""}>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : esc(initials(r.name))}</span>`).join("") : "";
       (VIZ[kind] || VIZ.text)($l("viz"), s, L.rows, rev);
       if (L.phase === "open" && !$l("sub").textContent.trim() && K.say) $l("sub").textContent = K.say;
     }
@@ -375,14 +387,14 @@ window.TSA = (() => {
       },
       text(v, s, rows, rev) {
         const showAll = kind === "exit" || rev;
-        const card = r => `<div class="tc ${r.grp}">${esc(r.answer?.text)}<small>${esc(r.name || "")}${r.grp !== "all" ? " · Group " + r.grp : ""}</small></div>`;
+        const card = r => `<div class="tc ${r.grp}"${r.grp !== "all" ? ` style="border-left:5px solid ${gColor(r.grp)}"` : ""}>${esc(r.answer?.text)}<small>${esc(r.name || "")}${r.grp !== "all" ? " · " + esc(gName(r.grp)) : ""}</small></div>`;
         let html = kind === "case" && s.text && !rev ? `<div class="lv-case">${esc(s.text)}</div>` : "";
         if (!showAll) html += waiting(`${rows.length} answer${rows.length === 1 ? "" : "s"} in. Show results to read them.`);
         else if (kind === "case") {
-          const groups = ["A", "B", "all"].filter(g => rows.some(r => r.grp === g));
+          const groups = [...new Set(teamKeys().concat(["A", "B", "all"]))].filter(g => rows.some(r => r.grp === g));
           const firsts = groups.filter(g => g !== "all").map(g => ({ g, r: rows.filter(r => r.grp === g).sort((a, b) => a.ms - b.ms)[0] })).filter(x => x.r).sort((a, b) => a.r.ms - b.r.ms);
-          if (firsts.length) $l("sub").textContent = `Group ${firsts[0].g} answered first (${fmtMs(firsts[0].r.ms)})`;
-          html += rows.length ? `<div class="lv-cols" style="grid-template-columns:repeat(${groups.length},minmax(0,1fr))">${groups.map(g => `<div><h3>${g === "all" ? "No group" : "Group " + g}</h3>${rows.filter(r => r.grp === g).map(card).join("")}</div>`).join("")}</div>` : waiting("No answers yet.");
+          if (firsts.length) $l("sub").textContent = `${gName(firsts[0].g)} answered first (${fmtMs(firsts[0].r.ms)})`;
+          html += rows.length ? `<div class="lv-cols" style="grid-template-columns:repeat(${Math.min(groups.length, 4)},minmax(0,1fr))">${groups.map(g => `<div><h3 style="color:${g === "all" ? "inherit" : gColor(g)}">${g === "all" ? "No group" : esc(gName(g))}</h3>${rows.filter(r => r.grp === g).map(card).join("")}</div>`).join("")}</div>` : waiting("No answers yet.");
         } else html += rows.length ? `<div class="lv-cards">${rows.slice().reverse().map(card).join("")}</div>` : waiting("Answers appear here as people send them.");
         v.innerHTML = html;
       }
@@ -435,8 +447,8 @@ window.TSA = (() => {
       const t = totals(), top = t.slice(0, 3), rest = t.slice(3, 11);
       let head = `<h2>${final ? "Final leaderboard" : "Leaderboard"}</h2>`;
       if (K.teams) {
-        const g = { A: 0, B: 0 }; L.all.forEach(r => { if (g[r.grp] != null) g[r.grp] += r.points || 0; });
-        head = `<div class="teamwin">${final ? (g.A === g.B ? "It's a draw!" : (g.A > g.B ? "Group A" : "Group B") + " wins!") : ""}</div><p class="st-mono">Group A ${g.A} · ${g.B} Group B</p><h2 style="font-size:28px">Top players</h2>`;
+        const g = teamPoints(), order = Object.keys(g).sort((a, b) => g[b] - g[a]), draw = order.length > 1 && g[order[0]] === g[order[1]];
+        head = `<div class="teamwin" style="color:${draw ? "inherit" : gColor(order[0])}">${final ? (draw ? "It's a draw!" : esc(gName(order[0])) + " wins!") : ""}</div><p class="st-mono">${order.map(k => `${esc(gName(k))} ${g[k]}`).join(" · ")}</p><h2 style="font-size:28px">Top players</h2>`;
       }
       const pod = [top[1], top[0], top[2]].map((p, i) => p ? `<div class="pod p${[2, 1, 3][i]}"><span class="rk">${[2, 1, 3][i]}</span>${face(p)}<b>${esc(firstName(p.name))}</b><span>${p.points} pts</span></div>` : "").join("");
       overlay(`<div class="board">${head}${t.length ? `<div class="podium">${pod}</div>${rest.length ? `<div class="rest">${rest.map((p, i) => `<div><b>${i + 4}</b><span>${esc(p.name)}</span><b>${p.points}</b></div>`).join("")}</div>` : ""}` : `<p class="st-mono">No answers yet.</p>`}</div>`);

@@ -23,7 +23,7 @@
     ["quiz", "Quiz", "Timed, with a portrait leaderboard", "#2747C8"],
     ["short", "Short answer", "Type a word or phrase; auto-marked", "#2747C8"],
     ["buzz", "First to catch", "First correct answer wins", "#F4B400"],
-    ["battle", "Group battle", "Group A against Group B", "#14161C"],
+    ["battle", "Group battle", "Groups race to answer", "#14161C"],
     ["order", "Order it", "Put the steps in order", "#D2391F"],
     ["match", "Match it", "Pair terms and meanings", "#2747C8"],
     ["spot", "Spot the error", "Tap the planted mistake", "#F4B400"],
@@ -361,7 +361,7 @@
         venue: src?.venue || "", course_lead: src?.course_lead || profile.full_name || "", objectives: src?.objectives || "", main_topic: src?.main_topic || "", key_skill: src?.key_skill || "",
         pre_test: src ? src.pre_test : true, post_test: src ? src.post_test : true, tools: new Set((src?.tools || ["quiz", "exit"]).filter(t => t !== "wheel" && t !== "throw")),
         flow: src?.flow || [], evaluation: src?.evaluation || { mode: "default", anonymous: true, at_tapout: true }, files: src?.files || [], slide_count: src?.slide_count || 0,
-        attendance_code: src?.attendance_code || "" };
+        attendance_code: src?.attendance_code || "", groups: src ? src.groups : undefined };
       W.at = Math.min(W.at || 0, LAST);
     }
     drawWizard();
@@ -369,7 +369,11 @@
   function wizardField(name) { const el = $("view").querySelector(`[name="${name}"]`); return el ? el.value.trim() : W[name]; }
   function grabStep() {
     const v = $("view");
-    if (W.at === 0) ["programme_id", "topic", "session_date", "start_time", "venue", "course_lead", "objectives", "main_topic", "key_skill"].forEach(k => (W[k] = wizardField(k)));
+    if (W.at === 0) {
+      ["programme_id", "topic", "session_date", "start_time", "venue", "course_lead", "objectives", "main_topic", "key_skill"].forEach(k => (W[k] = wizardField(k)));
+      const on = v.querySelector("[name=g_on]");
+      if (on) W.groups = on.value ? { ...(W.groups || {}), n: Math.max(2, Math.min(12, +v.querySelector("[name=g_n]").value || 4)), method: v.querySelector("[name=g_m]").value, names: W.groups?.names || [] } : null;
+    }
     if (W.at === 2) { const a = v.querySelector("[name=pre_test]"), b = v.querySelector("[name=post_test]"); if (a) W.pre_test = a.checked; if (b) W.post_test = b.checked; }
     if (W.at === 3) { const m = v.querySelector("[name=evmode]:checked"); if (m) W.evaluation = { mode: m.value, anonymous: v.querySelector("[name=anon]").checked, at_tapout: v.querySelector("[name=tapout]").checked }; }
   }
@@ -390,7 +394,7 @@
   }
   const wizRow = () => ({ id: W.id, programme_id: W.programme_id, topic: W.topic, session_date: W.session_date || null, start_time: W.start_time, venue: W.venue, course_lead: W.course_lead,
     objectives: W.objectives, main_topic: W.main_topic, key_skill: W.key_skill, pre_test: W.pre_test, post_test: W.post_test, tools: [...W.tools],
-    flow: W.flow, evaluation: W.evaluation, files: W.files, slide_count: W.slide_count });
+    flow: W.flow, evaluation: W.evaluation, files: W.files, slide_count: W.slide_count, ...(W.groups !== undefined ? { groups: W.groups } : {}) });
   function wizStatus(t, ok) { const el = $("wSaved"); if (el) { el.textContent = t; el.classList.toggle("ok", !!ok); } }
   // Save to the server as a draft: new sessions as soon as they have a programme and topic; drafts on every change.
   async function wizSaveServer() {
@@ -464,7 +468,12 @@
         <label class="fld">Venue<input name="venue" value="${esc(W.venue)}" placeholder="e.g. PSSDC Hall B"></label>
         <label class="fld full">Learning objectives<span class="hint">One per line. By the end of the session, participants will be able to…</span><textarea name="objectives" rows="4">${esc(W.objectives)}</textarea></label>
         <label class="fld">Main topic, for the evaluation<span class="hint">“My knowledge of …”</span><input name="main_topic" value="${esc(W.main_topic)}" placeholder="e.g. using AI for routine office tasks"></label>
-        <label class="fld">Key skill, for the evaluation<span class="hint">“I can now …”</span><input name="key_skill" value="${esc(W.key_skill)}" placeholder="e.g. write a clear prompt that gets a usable draft"></label></div>`
+        <label class="fld">Key skill, for the evaluation<span class="hint">“I can now …”</span><input name="key_skill" value="${esc(W.key_skill)}" placeholder="e.g. write a clear prompt that gets a usable draft"></label>
+        <fieldset class="ced-sig full"><legend>Groups</legend>
+          <div class="grid2"><label class="fld">Will you use groups?<select name="g_on"><option value="">No, or I'll decide in the session</option><option value="1" ${W.groups ? "selected" : ""}>Yes</option></select></label>
+          <label class="fld">How many groups<input type="number" name="g_n" min="2" max="12" value="${W.groups?.n || 4}"></label>
+          <label class="fld full">How to place people<select name="g_m">${TSGR.METHODS.map(([v, t, l]) => `<option value="${v}" ${(W.groups?.method || "random") === v ? "selected" : ""}>${t}: ${l}</option>`).join("")}</select></label></div>
+          <span class="small muted">People are placed as they check in, keeping the rule. You can reshuffle, move people or change the groups from the 👥 Groups button on the live screen.</span></fieldset></div>`
         : `<div class="empty"><div><h2>Create a programme first</h2><p class="muted">Every session belongs to a programme, such as a course or a workshop series.</p><a class="btn" style="align-self:flex-start" href="#/programmes?new=1&back=new">+ New programme</a></div></div>`;
     } else if (at === 1) {
       const slides = W.files.find(f => f.kind === "slides"), share = W.files.filter(f => f.kind === "share"), links = W.files.filter(f => f.kind === "link");
@@ -792,14 +801,14 @@
       const isDup = r => (byName[normName(r.name)] || []).length > 1;
       const away = r => (r.periods || []).map(p => `${fmtT(p.out)}–${fmtT(p.back)}`).concat(r.left_at ? [`${fmtT(r.left_at)}–`] : []).join(", ");
       $("regN").textContent = `· ${rows.length} checked in · ${rows.filter(r => r.left_at).length} tapped out`;
-      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>In</th><th>Away</th><th>Out</th><th>Time spent</th><th></th></tr></thead><tbody>${rows.map((r, i) => {
+      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>Group</th><th>In</th><th>Away</th><th>Out</th><th>Time spent</th><th></th></tr></thead><tbody>${rows.map((r, i) => {
         const d = dupOf(r);
         return `<tr><td>${i + 1}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td>
           <td><b>${esc(pName(r))}</b>${isDup(r) ? `<br><span class="flag">Possible duplicate</span>` : ""}${(r.rejoins || []).length ? `<br><small class="muted" title="${esc(r.rejoins.map(fmtT).join(", "))}">↩ Back in by email ${r.rejoins.length > 1 ? r.rejoins.length + " times" : "at " + fmtT(r.rejoins[0])}</small>` : ""}</td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td>
-          <td>${fmtT(r.arrived_at)}</td><td>${r.away_seconds || r.left_at ? `<span title="${esc(away(r))}">${hm(r.away_seconds)}</span><br><small class="muted">${esc(away(r))}</small>` : "–"}</td>
+          <td>${r.grp ? `<span class="gpill" style="background:${TSGR.color(r.grp)}">${esc(TSGR.name(s.groups, r.grp))}</span>` : "–"}</td><td>${fmtT(r.arrived_at)}</td><td>${r.away_seconds || r.left_at ? `<span title="${esc(away(r))}">${hm(r.away_seconds)}</span><br><small class="muted">${esc(away(r))}</small>` : "–"}</td>
           <td>${fmtT(r.left_at) || "–"}</td><td><b>${hm(r.spent_seconds)}</b></td>
           <td>${d.length ? `<button class="btn ghost small" type="button" data-merge="${r.participant}" data-into="${d[0].participant}">Merge into ${esc(d[0].email)}</button>` : ""}</td></tr>`;
-      }).join("") || `<tr><td colspan="10" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
+      }).join("") || `<tr><td colspan="11" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
       t.querySelectorAll("[data-merge]").forEach(b => b.addEventListener("click", async () => {
         if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to merge"; return; }
         const { error } = await sb.rpc("merge_participants", { p_keep: b.dataset.into, p_drop: b.dataset.merge });
@@ -811,8 +820,8 @@
         const { data: part } = await sb.rpc("session_participation", { p_session: s.id });
         const pm = Object.fromEntries((part || []).map(x => [x.participant, x]));
         csvDownload(`Register - ${s.topic}`, [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [],
-          ["#", "Title", "Name", "Email", "Organisation", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
-          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
+          ["#", "Title", "Name", "Email", "Organisation", "Sex", "Group", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
+          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, { male: "Male", female: "Female", na: "Prefer not to say" }[r.sex] || "", r.grp ? TSGR.name(s.groups, r.grp) : "", fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
       };
     };
     $("regRefresh").onclick = draw;
@@ -1197,6 +1206,7 @@
     data.forEach(r => known.add(r.id)); P.known = known; P.roll = data;
     counts();
     if (P.items[P.i]?.t === "welcome") { drawWelcome(); nextArrival(); }
+    if (!$("stGroups").hidden && gcfg() && !document.querySelector(".gghost,.gnamein,.gform")) drawGroups();
   }
   function counts() {
     if (!P) return;
@@ -1283,12 +1293,18 @@
            : `<span class="soon">No questions written yet. Add them on the session's Assessments tab, then reopen the live screen.</span>`}</div>`;
     $("stStart")?.addEventListener("click", () => startRun(it, slot, a));
   }
-  function startRun(it, slot, a) {
+  async function startRun(it, slot, a) {
     if (!P || P.run) return;
+    // a group battle needs groups: make two at random if there are none yet
+    if (a.kind === "battle" && !gcfg() && P.roll.length >= 2) {
+      const cfg = { n: 2, method: "random", names: [], aliases: {} };
+      if (await gSave(cfg, TSGR.assign(P.roll.map(r => ({ participant: r.participant })), 2, "random"))) { await refreshRoll(false); gSend(); stFlash("👥 2 groups made for the battle"); }
+      if (P.run) return;
+    }
     const run = slot === "test" ? (it.key === "pretest" ? "pre" : "post") : "r" + Date.now().toString(36);
     const m = $("stMain"); m.innerHTML = `<div class="lvwrap"></div>`;
     const at = P.i;
-    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0, ai: aiCall, fingers: f => window.TSG.fingers(f), onCamera: on => { if (window.TSG.on || P?.gestPaused) { P.gestPaused = on; window.TSG.pause(on); } },
+    P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0, groups: () => gcfg(), ai: aiCall, fingers: f => window.TSG.fingers(f), onCamera: on => { if (window.TSG.on || P?.gestPaused) { P.gestPaused = on; window.TSG.pause(on); } },
       onDone: () => { if (P && P.i === at) { if (P.i < P.items.length - 1) goItem(P.i + 1); else { stopRun(); draw(); } } } });
   }
   function drawWelcome() {
@@ -1324,7 +1340,7 @@
   }
   function openShare() {
     const files = (P.s.files || []).filter(f => f.kind === "share" || f.kind === "link");
-    const tg = n => `<div class="row"><button class="btn ghost small" type="button" data-sh="${n}" data-t="A">← Group A</button><button class="btn red small" type="button" data-sh="${n}" data-t="all">Everyone</button><button class="btn ghost small" type="button" data-sh="${n}" data-t="B">Group B →</button></div>`;
+    const tg = n => `<div class="row" style="gap:6px"><button class="btn red small" type="button" data-sh="${n}" data-t="all">Everyone</button>${TSGR.keys(gcfg()).map(k => `<button class="btn ghost small" type="button" data-sh="${n}" data-t="${k}" style="border-color:${TSGR.color(k)};color:${TSGR.color(k)}">${esc(TSGR.name(gcfg(), k))}</button>`).join("")}</div>`;
     $("stShare").innerHTML = `<div class="row" style="justify-content:space-between"><b style="font-family:var(--display);font-size:18px">Share with the room</b><button type="button" class="x" id="shX" aria-label="Close">×</button></div>
       ${P.items[P.i].t === "slide" ? `<div class="shrow"><b>This slide (${P.items[P.i].n})</b>${tg("slide")}</div>` : ""}
       ${files.map((f, n) => `<div class="shrow"><b>${f.kind === "link" ? (f.sub === "YouTube" ? "▶ " : "🔗 ") : "📄 "}${esc(f.name)}</b>${tg(n)}</div>`).join("") || `<p class="small muted">No files or links preloaded. Add them on the session's Slides step.</p>`}
@@ -1336,7 +1352,7 @@
       try {
         if (b.dataset.sh === "slide") await shareSlide(b.dataset.t);
         else { const f = files[+b.dataset.sh]; if (f.kind === "link") await share("link", f.name, f.url, b.dataset.t); else await share("file", f.name, await publishFile(f), b.dataset.t); }
-        msg.className = "upmsg"; msg.textContent = `Sent to ${b.dataset.t === "all" ? "everyone" : "Group " + b.dataset.t} ✓`;
+        msg.className = "upmsg"; msg.textContent = `Sent to ${b.dataset.t === "all" ? "everyone" : TSGR.name(gcfg(), b.dataset.t)} ✓`;
       } catch (e) { msg.className = "err"; msg.textContent = errText(e, "Couldn't share.").replace("schema.sql", "schema-2-participants.sql"); }
     }));
   }
@@ -1364,9 +1380,12 @@
   const getPicked = () => { try { return new Set(JSON.parse(sessionStorage.getItem(pickedKey()) || "[]")); } catch { return new Set(); } };
   const setPicked = set => { try { sessionStorage.setItem(pickedKey(), JSON.stringify([...set])); } catch {} };
   let wheelSkip = true;
-  function openWheel() {
+  function openWheel(mode) {
     if (!P) return;
-    const box = $("stWheel"), here = P.roll.filter(r => !r.left_at), picked = getPicked();
+    if (mode) G.wheel = mode;
+    const gm = G.wheel === "groups" && gcfg();
+    const box = $("stWheel"), picked = getPicked();
+    const here = gm ? TSGR.keys(gcfg()).map(k => ({ participant: "g" + k, name: TSGR.name(gcfg(), k), grp: k, color: TSGR.color(k), count: P.roll.filter(r => r.grp === k).length })) : P.roll.filter(r => !r.left_at);
     const pool = wheelSkip ? here.filter(r => !picked.has(r.participant)) : here;
     box.hidden = false; setTimeout(remoteState, 0);
     if (!here.length) { box.innerHTML = `<div class="wcard"><h2>No one is checked in yet</h2><p>People appear on the wheel once they check in.</p><button class="key next" type="button" data-wx>Close</button></div>`; box.querySelector("[data-wx]").onclick = closeWheel; return; }
@@ -1375,16 +1394,17 @@
     const label = r => { const nm = String(r.name || "").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, ""); return n > 24 ? nm.split(" ")[0] : nm.length > 18 ? nm.split(" ")[0] : nm; };
     const svg = `<svg viewBox="-110 -110 220 220" class="wsvg" id="wSvg">${pool.map((r, i) => {
       const a0 = (i * seg - 90) * Math.PI / 180, a1 = ((i + 1) * seg - 90) * Math.PI / 180, large = seg > 180 ? 1 : 0;
-      const path = n === 1 ? `<circle r="100" fill="${WCOL[0]}"/>` : `<path d="M0 0 L${100 * Math.cos(a0)} ${100 * Math.sin(a0)} A100 100 0 ${large} 1 ${100 * Math.cos(a1)} ${100 * Math.sin(a1)} Z" fill="${WCOL[i % WCOL.length]}"/>`;
+      const path = n === 1 ? `<circle r="100" fill="${r.color || WCOL[0]}"/>` : `<path d="M0 0 L${100 * Math.cos(a0)} ${100 * Math.sin(a0)} A100 100 0 ${large} 1 ${100 * Math.cos(a1)} ${100 * Math.sin(a1)} Z" fill="${r.color || WCOL[i % WCOL.length]}"/>`;
       const mid = (i + 0.5) * seg - 90, fs = Math.max(4, Math.min(9, 150 / n));
-      return path + `<text transform="rotate(${mid}) translate(94 0)" text-anchor="end" dominant-baseline="middle" font-size="${fs}" fill="${i % WCOL.length === 1 ? "#14161C" : "#fff"}">${esc(label(r))}</text>`;
+      return path + `<text transform="rotate(${mid}) translate(94 0)" text-anchor="end" dominant-baseline="middle" font-size="${fs}" fill="${!r.color && i % WCOL.length === 1 ? "#14161C" : "#fff"}">${esc(gm ? r.name : label(r))}</text>`;
     }).join("")}<circle r="14" fill="#fff"/><circle r="6" fill="#14161C"/></svg>`;
     box.innerHTML = `<div class="wwrap"><div class="wpin" aria-hidden="true"></div>${svg}</div>
-      <div class="wside"><span class="st-hello">Spin the wheel</span><h2>${n} ${n === 1 ? "person" : "people"} on the wheel</h2>
+      <div class="wside"><span class="st-hello">Spin the wheel</span>${gcfg() ? `<div class="wmode" role="group" aria-label="Spin"><button type="button" data-wm="people" aria-pressed="${!gm}">People</button><button type="button" data-wm="groups" aria-pressed="${!!gm}">Groups</button></div>` : ""}<h2>${n} ${gm ? (n === 1 ? "group" : "groups") : n === 1 ? "person" : "people"} on the wheel</h2>
         <label class="wskip"><input type="checkbox" id="wSkip" ${wheelSkip ? "checked" : ""}> Leave out people already picked (${picked.size})</label>
         <div class="row"><button class="key next big" type="button" id="wGo">Spin ↻</button><button class="key" type="button" data-wx>Close</button></div>
         <div id="wWin" class="wwin" aria-live="polite"></div></div>`;
     box.querySelector("[data-wx]").onclick = closeWheel;
+    box.querySelectorAll("[data-wm]").forEach(b => (b.onclick = () => openWheel(b.dataset.wm)));
     $("wSkip").onchange = e => { wheelSkip = e.target.checked; openWheel(); };
     let rot = 0, busy = false, spun = false;
     $("wGo").onclick = () => {
@@ -1400,8 +1420,13 @@
         busy = false; spun = true;
         if (!$("wWin") || !$("wSvg") || $("wSvg") !== el) return;   // closed while spinning
         const set = getPicked(); set.add(win.participant); setPicked(set);
-        $("wWin").innerHTML = `<div class="wface">${win.photo ? `<img src="${esc(win.photo)}" alt="">` : `<span>${esc((win.name || "?")[0])}</span>`}</div><b>${esc(pName(win))}</b><small>${esc(win.organisation || "")}</small>`;
-        P.channel?.send({ type: "broadcast", event: "picked", payload: { participant: win.participant, name: win.name } });
+        if (gm) {
+          $("wWin").innerHTML = `<div class="wface" style="background:${win.color}"><span>${esc(win.grp)}</span></div><b>${esc(win.name)}</b><small>${TSGR.colorName(win.grp)} · ${win.count} ${win.count === 1 ? "person" : "people"}</small>`;
+          P.channel?.send({ type: "broadcast", event: "picked", payload: { grp: win.grp, name: win.name } });
+        } else {
+          $("wWin").innerHTML = `<div class="wface">${win.photo ? `<img src="${esc(win.photo)}" alt="">` : `<span>${esc((win.name || "?")[0])}</span>`}</div><b>${esc(pName(win))}</b><small>${esc(win.organisation || "")}</small>`;
+          P.channel?.send({ type: "broadcast", event: "picked", payload: { participant: win.participant, name: win.name } });
+        }
         $("wGo").textContent = "Spin again ↻";
       }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 50 : 5300);
     };
@@ -1451,14 +1476,29 @@
       zoomable: () => P && P.items[P.i]?.t === "slide" && !P.blank,
       slideEl: () => $("stCanvas"),
       canThrow: () => P && P.items[P.i]?.t === "slide" && !!P.pdf,
-      onGrab: g => { $("stGrab").hidden = !g; $("stGrab").textContent = "✊ Grabbed: open your hand towards the room to throw"; $("stMain").classList.toggle("grabbed", g); },
+      onGrab: g => {
+        $("stGrab").hidden = !g; $("stGrab").textContent = gcfg() ? "✊ Grabbed: move your fist to a group, then open your hand" : "✊ Grabbed: open your hand towards the room to throw"; $("stMain").classList.toggle("grabbed", g);
+        throwTiles(g);
+      },
+      onAim: f => { if (!P?.tiles) return; const i = Math.floor(f * P.tiles.length); P.aim = P.tiles[i]; document.querySelectorAll("#stThrow span").forEach((el, j) => el.classList.toggle("on", j === i)); },
       onThrow: async target => {
+        target = target || P.aim || "all"; throwTiles(false);
         const m = $("stMain"); m.classList.remove("tossed"); void m.offsetWidth; m.classList.add("tossed"); setTimeout(() => m.classList.remove("tossed"), 900);
-        try { await shareSlide(target); stFlash(`Thrown to ${target === "all" ? "everyone" : "Group " + target} ✓`); }
+        try { await shareSlide(target); stFlash(`Thrown to ${target === "all" ? "everyone" : TSGR.name(gcfg(), target)} ✓`); }
         catch (e) { stFlash("Couldn't throw"); toast(errText(e, "Couldn't share the slide.")); }
       },
       flash: stFlash
     });
+  }
+  // While a slide is grabbed: the groups as tiles along the bottom, Everyone in the middle.
+  function throwTiles(on) {
+    let el = $("stThrow");
+    if (!on || !P) { if (el) el.remove(); if (P) { P.tiles = null; P.aim = null; } return; }
+    const ks = TSGR.keys(gcfg()), half = Math.ceil(ks.length / 2);
+    P.tiles = ks.slice(0, half).concat(["all"], ks.slice(half)); P.aim = "all";
+    if (!el) { el = document.createElement("div"); el.id = "stThrow"; el.className = "st-throw"; $("stage").appendChild(el); }
+    $("stage").style.setProperty("--gb", $("stage").classList.contains("fs") ? "0px" : $("stDock").offsetHeight + "px");
+    el.innerHTML = P.tiles.map(k => `<span class="${k === "all" ? "on" : ""}" style="--tc:${k === "all" ? "#14161C" : TSGR.color(k)}">${k === "all" ? "Everyone" : esc(TSGR.name(gcfg(), k))}</span>`).join("");
   }
   $("stGest").addEventListener("click", () => gestures($("stGest").getAttribute("aria-pressed") !== "true"));
 
@@ -1468,6 +1508,109 @@
   $("stPrev").addEventListener("click", () => P && goItem(P.i - 1));
   $("stNext").addEventListener("click", () => { if (!P) return; if (P.i >= P.items.length - 1) finishSession(); else goItem(P.i + 1); });
   $("stShareBtn").addEventListener("click", () => P && openShare());
+  // ---------- groups (any number; fresh each session) ----------
+  const G = { form: null, wheel: "people" };
+  const initials = n => String(n || "?").replace(/^(Prof|Dr|Engr|Mr|Mrs|Miss|Ms)\.?\s+/i, "").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const gcfg = () => P?.s.groups || null;
+  function gSend() { P?.channel?.send({ type: "broadcast", event: "groups", payload: {} }); }
+  async function gSave(cfg, assign) {
+    const { error } = await sb.rpc("set_groups", { p_session: P.s.id, p_config: cfg, p_assign: assign });
+    if (error) { toast(/function|schema cache/i.test(error.message || "") ? "Groups aren't set up in the database yet: run supabase/schema-12-groups.sql in Supabase." : errText(error, "Couldn't save the groups.")); return false; }
+    P.s.groups = cfg; sessions = sessions.map(x => x.id === P.s.id ? { ...x, groups: cfg } : x);
+    return true;
+  }
+  async function openGroups() {
+    if (!P) return;
+    const { data } = await sb.from("sessions").select("groups").eq("id", P.s.id).single();
+    if (data) P.s.groups = data.groups || null;
+    await refreshRoll(false);
+    $("stage").style.setProperty("--gb", $("stage").classList.contains("fs") ? "0px" : $("stDock").offsetHeight + "px");
+    $("stGroups").hidden = false; setTimeout(remoteState, 0);
+    gcfg() ? drawGroups(true) : groupForm();
+  }
+  function closeGroups() { $("stGroups").hidden = true; }
+  function groupForm(prefill) {
+    const box = $("stGroups"), people = P.roll, cur = prefill || gcfg() || { n: 4, method: "random" };
+    G.form = { n: cur.n || 4, about: 0, method: cur.method || "random", aliases: { ...(cur.aliases || {}) } };
+    const sexes = { male: 0, female: 0, other: 0 }; people.forEach(r => (r.sex === "male" ? sexes.male++ : r.sex === "female" ? sexes.female++ : sexes.other++));
+    const draw = () => {
+      const f = G.form, n = f.about ? Math.max(2, Math.min(12, Math.round(people.length / f.about) || 2)) : f.n, list = TSGR.mdas(people, f.aliases);
+      box.innerHTML = `<div class="gform"><div class="row" style="justify-content:space-between"><h2>Make groups</h2><button type="button" class="x" data-gx aria-label="Close">×</button></div>
+        <p class="st-mono">${people.length} ${people.length === 1 ? "person" : "people"} checked in · ${sexes.male} men · ${sexes.female} women${sexes.other ? ` · ${sexes.other} not said` : ""}</p>
+        <div class="gsize"><label class="gopt"><input type="radio" name="gsz" value="n" ${f.about ? "" : "checked"}><span>Number of groups</span>
+            <span class="gstep"><button type="button" data-gn="-1" aria-label="Fewer">−</button><b>${f.n}</b><button type="button" data-gn="1" aria-label="More">＋</button></span></label>
+          <label class="gopt"><input type="radio" name="gsz" value="about" ${f.about ? "checked" : ""}><span>Groups of about</span>
+            <span class="gstep"><button type="button" data-ga="-1" aria-label="Smaller">−</button><b>${f.about || 5}</b><button type="button" data-ga="1" aria-label="Bigger">＋</button></span><span class="small">people${f.about ? ` → ${n} groups` : ""}</span></label></div>
+        <div class="gmeth">${TSGR.METHODS.map(([v, t, l]) => `<label class="gm"><input type="radio" name="gm" value="${v}" ${f.method === v ? "checked" : ""}><b>${t}</b><span>${l}</span></label>`).join("")}</div>
+        ${f.method.startsWith("mda") ? `<details class="gmda" ${list.length ? "open" : ""}><summary><b>${list.length} different MDA${list.length === 1 ? "" : "s"}</b> <span class="small">Same MDA spelt differently? Merge them so they count as one.</span></summary>
+          <div class="gmlist">${list.map((m, i) => `<div class="gmrow"><span>${esc(m.label)} <small>(${m.count})</small></span><select data-gmerge="${i}"><option value="">Its own MDA</option>${list.filter(o => o.key !== m.key).map(o => `<option value="${esc(o.key)}">Same as ${esc(o.label)}</option>`).join("")}</select></div>`).join("") || `<p class="small">No MDAs entered yet.</p>`}</div></details>` : ""}
+        ${f.method === "sex" && sexes.other > people.length / 2 ? `<p class="small" style="color:var(--sacc)">Most people haven't said their sex, so this works like Random.</p>` : ""}
+        <div class="row"><button type="button" class="key next big" id="gMake">${gcfg() ? "Make new groups" : "Create groups"}</button><button type="button" class="key" data-gx>Cancel</button></div></div>`;
+      box.querySelectorAll("[data-gx]").forEach(b => (b.onclick = () => (gcfg() ? drawGroups() : closeGroups())));
+      box.querySelectorAll("[data-gn]").forEach(b => (b.onclick = () => { f.about = 0; f.n = Math.max(2, Math.min(12, f.n + +b.dataset.gn)); draw(); }));
+      box.querySelectorAll("[data-ga]").forEach(b => (b.onclick = () => { f.about = Math.max(2, Math.min(30, (f.about || 5) + +b.dataset.ga)); draw(); }));
+      box.querySelectorAll("[name=gsz]").forEach(i => (i.onchange = () => { f.about = i.value === "about" ? f.about || 5 : 0; draw(); }));
+      box.querySelectorAll("[name=gm]").forEach(i => (i.onchange = () => { f.method = i.value; draw(); }));
+      box.querySelectorAll("[data-gmerge]").forEach(sel => (sel.onchange = () => {
+        const m = list[+sel.dataset.gmerge]; m.raws.forEach(r => { if (sel.value) f.aliases[r] = sel.value; else delete f.aliases[r]; });
+        Object.keys(f.aliases).forEach(k => { if (f.aliases[k] === m.key && sel.value) f.aliases[k] = sel.value; }); draw();
+      }));
+      $("gMake").onclick = async () => {
+        const cfg = { n, method: f.method, names: (gcfg()?.n === n ? gcfg().names : []) || [], aliases: f.aliases };
+        const assign = TSGR.assign(people.map(r => ({ participant: r.participant, sex: r.sex, organisation: r.organisation })), n, f.method, f.aliases);
+        if (!(await gSave(cfg, assign))) return;
+        await refreshRoll(false); gSend(); drawGroups(true);
+      };
+    };
+    draw();
+  }
+  function drawGroups(animate) {
+    const box = $("stGroups"), cfg = gcfg(); if (!cfg) return groupForm();
+    const keys = TSGR.keys(cfg), by = {}; keys.forEach(k => (by[k] = []));
+    const none = []; P.roll.forEach(r => (by[r.grp] ? by[r.grp].push(r) : none.push(r)));
+    const face = (r, i) => `<span class="gface${r.left_at ? " out" : ""}" data-pid="${r.participant}" style="${animate ? `animation-delay:${Math.min(i * 40, 1600)}ms` : "animation:none"}" title="${esc(pName(r))}">${r.photo ? `<img src="${esc(r.photo)}" alt="" draggable="false">` : `<i>${esc(initials(r.name))}</i>`}<small>${esc(String(r.name || "").split(" ")[0])}</small></span>`;
+    let i = 0;
+    box.innerHTML = `<div class="gtop"><div><span class="st-hello">Groups</span><h2>${keys.length} groups · ${esc((TSGR.METHODS.find(m => m[0] === cfg.method) || [])[1] || "")}</h2></div>
+        <div class="row"><button type="button" class="key" id="gShuffle" ${cfg.method === "choose" ? "hidden" : ""}>↻ Reshuffle</button><button type="button" class="key" id="gChange">Change</button><button type="button" class="key" id="gSpin">🎯 Spin a group</button><button type="button" class="key" id="gRemove">Remove groups</button><button type="button" class="key next" data-gx>Close</button></div></div>
+      <p class="st-mono gtip">Drag a face to move someone · tap a group's name to rename it${cfg.method === "choose" ? " · people pick their group on their phones" : " · late arrivals are placed automatically"}</p>
+      <div class="ggrid" style="--cols:${Math.min(keys.length + (none.length ? 1 : 0), keys.length > 6 ? 4 : 3)}">${keys.map(k => `<div class="gcard" data-gk="${k}" style="--gc:${TSGR.color(k)}"><div class="gh"><button type="button" class="gname" data-gren="${k}">${esc(TSGR.name(cfg, k))}</button><span>${TSGR.colorName(k)} · ${by[k].length}</span></div><div class="gfaces">${by[k].map(r => face(r, i++)).join("") || `<span class="small gempty">No one yet</span>`}</div></div>`).join("")}
+        ${none.length ? `<div class="gcard" data-gk="" style="--gc:#5B6170"><div class="gh"><b>Not in a group</b><span>${none.length}</span></div><div class="gfaces">${none.map(r => face(r, i++)).join("")}</div></div>` : ""}</div>`;
+    box.querySelector("[data-gx]").onclick = closeGroups;
+    $("gChange").onclick = () => groupForm(cfg);
+    $("gSpin").onclick = () => { closeGroups(); openWheel("groups"); };
+    $("gShuffle").onclick = async e => {
+      const b = e.currentTarget; if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to reshuffle"; return; }
+      const assign = TSGR.assign(P.roll.map(r => ({ participant: r.participant, sex: r.sex, organisation: r.organisation })), cfg.n, cfg.method, cfg.aliases);
+      if (await gSave(cfg, assign)) { await refreshRoll(false); gSend(); drawGroups(true); }
+    };
+    $("gRemove").onclick = async e => {
+      const b = e.currentTarget; if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to remove"; return; }
+      if (await gSave(null, null)) { await refreshRoll(false); gSend(); closeGroups(); toast("Groups removed"); }
+    };
+    box.querySelectorAll("[data-gren]").forEach(b => (b.onclick = () => {
+      const k = b.dataset.gren, inp = document.createElement("input"); inp.className = "gnamein"; inp.value = TSGR.name(cfg, k); inp.maxLength = 30;
+      b.replaceWith(inp); inp.focus(); inp.select();
+      const done = async () => { const names = (cfg.names || []).slice(); names[+k - 1] = inp.value.trim(); const nc = { ...cfg, names }; if (await gSave(nc, null)) gSend(); drawGroups(); };
+      inp.addEventListener("blur", done, { once: true }); inp.addEventListener("keydown", e => { e.stopPropagation(); if (e.key === "Enter") inp.blur(); if (e.key === "Escape") { inp.value = TSGR.name(cfg, k); inp.blur(); } });
+    }));
+    // drag a face to another group (mouse or touch)
+    box.querySelectorAll(".gface").forEach(f => f.addEventListener("pointerdown", e => {
+      e.preventDefault(); const ghost = f.cloneNode(true); ghost.classList.add("gghost"); document.body.appendChild(ghost);
+      const mv = ev => { ghost.style.left = ev.clientX + "px"; ghost.style.top = ev.clientY + "px"; box.querySelectorAll(".gcard").forEach(c => c.classList.toggle("over", c === document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".gcard"))); };
+      mv(e); f.classList.add("lifting");
+      const up = async ev => {
+        removeEventListener("pointermove", mv); removeEventListener("pointerup", up); ghost.remove(); f.classList.remove("lifting");
+        const card = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".gcard"); box.querySelectorAll(".gcard").forEach(c => c.classList.remove("over"));
+        const r = P.roll.find(x => x.participant === f.dataset.pid); if (!card || !r || card.dataset.gk === r.grp) return;
+        const { error } = await sb.rpc("move_to_group", { p_session: P.s.id, p_participant: r.participant, p_grp: card.dataset.gk });
+        if (error) return toast(errText(error, "Couldn't move them."));
+        r.grp = card.dataset.gk; gSend(); drawGroups();
+      };
+      addEventListener("pointermove", mv); addEventListener("pointerup", up);
+    }));
+  }
+  $("stGroupsBtn").addEventListener("click", () => { if (!P) return; $("stGroups").hidden ? openGroups() : closeGroups(); });
+
   // ---------- writing board ----------
   async function slideCanvas(n, width = 1600) {
     if (!P?.pdf) return null;
@@ -1538,6 +1681,8 @@
     else if (e.key === "Escape" && !$("stWheel").hidden) closeWheel();
     else if (e.key === "Escape" && !$("stRemote").hidden) $("stRemote").hidden = true;
     else if (e.key === "Escape" && !$("stShare").hidden) $("stShare").hidden = true;
+    else if (e.key === "u" || e.key === "U") $("stGroupsBtn").click();
+    else if (e.key === "Escape" && !$("stGroups").hidden) closeGroups();
     poke();
   });
   let pokeT = null;

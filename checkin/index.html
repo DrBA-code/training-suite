@@ -35,7 +35,8 @@
   .sesshead{display:flex;flex-direction:column;gap:6px}
   .sesshead h1{font-size:clamp(26px,7vw,34px);font-weight:800}
   .titles{display:flex;flex-wrap:wrap;gap:6px}
-  .titles input{position:absolute;opacity:0;pointer-events:none}
+  .titles{position:relative}
+  .titles input{position:absolute;opacity:0;pointer-events:none;left:0;top:0;width:1px;height:1px;margin:0}
   .titles label{padding:9px 14px;border:1.5px solid var(--line-2);cursor:pointer;font-weight:700;font-size:15px}
   .titles input:checked+label{background:var(--ink);color:#fff;border-color:var(--ink)}
   .titles input:focus-visible+label{outline:3px solid var(--blue);outline-offset:2px}
@@ -58,6 +59,14 @@
   .me .ph{width:72px;height:72px;background:var(--sage);overflow:hidden;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:24px}
   .me .ph img{width:100%;height:100%;object-fit:cover}
   .me b{font-family:var(--display);font-size:20px;display:block;line-height:1.2}
+  .grpbox{border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px;color:#fff;background:var(--gc,#14161C)}
+  .grpbox .lbl{color:rgba(255,255,255,.85)}
+  .grpbox b.gn{font-family:var(--display);font-size:30px;line-height:1.05}
+  .grpbox .mates{font-size:14px;color:rgba(255,255,255,.9)}
+  .grpbox.pick{background:#fff;color:var(--ink);border:1.5px solid var(--line)}
+  .grpbox.pick .lbl{color:var(--muted)}
+  .gchoose{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .gchoose button{border:0;border-radius:12px;padding:12px 8px;font-weight:800;color:#fff;cursor:pointer;font-size:15px}
   .groups{display:flex;border:1.5px solid var(--ink)}
   .groups button{flex:1;border:0;background:#fff;padding:11px 6px;font-weight:700;cursor:pointer}
   .groups button[aria-pressed="true"]{background:var(--ink);color:#fff}
@@ -198,7 +207,9 @@
     <label class="fld" for="fName">Full name<span class="hint">Write it exactly as you want it on your certificate.</span><input id="fName" autocomplete="name" placeholder="e.g. Babajide Arulogun"></label>
     <div class="certprev" id="prev" hidden><span>On your certificate</span><b id="prevName"></b></div>
     <label class="fld" for="fEmail">Email<span class="hint" id="emailHint">Your certificate and results will be sent here.</span><input id="fEmail" type="email" inputmode="email" autocomplete="email"></label>
-    <label class="fld" for="fOrg">Organisation / MDA<input id="fOrg" autocomplete="organization" placeholder="Ministry, department, agency or company"></label>
+    <label class="fld" for="fOrg">Organisation / MDA<input id="fOrg" autocomplete="organization" list="mdaList" placeholder="Ministry, department, agency or company"></label><datalist id="mdaList"></datalist>
+    <div class="fld" role="group" aria-labelledby="sxl"><span id="sxl">Sex <span class="hint" style="display:inline">(optional, used to balance groups)</span></span>
+      <div class="titles" id="sexes"><input type="radio" name="sex" id="sx_m" value="male"><label for="sx_m">Male</label><input type="radio" name="sex" id="sx_f" value="female"><label for="sx_f">Female</label><input type="radio" name="sex" id="sx_n" value="na"><label for="sx_n">Prefer not to say</label></div></div>
     <div class="fld"><span>Your photo</span>
       <div class="cam"><div class="ring" id="ring"><span id="camMsg">Starting camera…</span><video id="video" playsinline muted autoplay hidden></video><img id="still" alt="Your photo" hidden>
           <svg class="guide" id="guide" viewBox="0 0 100 100" aria-hidden="true" hidden><path d="M8 100 C 10 80, 24 74, 37 71 L 37 64 C 28 58, 27 47, 27 38 C 27 22, 37 12, 50 12 C 63 12, 73 22, 73 38 C 73 47, 72 58, 63 64 L 63 71 C 76 74, 90 80, 92 100" /></svg></div>
@@ -213,8 +224,7 @@
   <!-- the room -->
   <section id="room" hidden style="display:flex;flex-direction:column;gap:18px">
     <div class="me"><span class="ph" id="rPh"></span><div><span class="lbl">You're checked in</span><b id="rName"></b><span class="small muted" id="rIn"></span></div></div>
-    <div class="fld"><span>Your group <span class="hint" style="display:inline">(if the facilitator gave you one)</span></span>
-      <div class="groups" id="groups" role="group" aria-label="Your group"><button type="button" data-g="A">Group A</button><button type="button" data-g="all">No group</button><button type="button" data-g="B">Group B</button></div></div>
+    <div class="grpbox" id="grpBox" hidden aria-live="polite"></div>
     <div class="learn" id="endBox" hidden></div>
     <div class="certcard" id="certCard" hidden aria-live="polite"></div>
     <div class="evcard" id="evCard" hidden></div>
@@ -242,6 +252,7 @@
 <script src="../config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="../groups.js"></script>
 <script src="../evaluation.js"></script>
 <script src="../certificate.js"></script>
 <script src="checkin.js"></script>

@@ -34,7 +34,7 @@
     $("head").hidden = false; $("hProg").textContent = sess.programme; $("hTopic").textContent = sess.topic;
     $("hMeta").textContent = [sess.course_lead, sess.date && new Date(sess.date + "T00:00:00").toLocaleDateString([], { day: "numeric", month: "long" }), sess.start_time, sess.venue].filter(Boolean).join(" · ");
     document.title = sess.topic + " · Check-in";
-    group = store.get("ts_group_" + code) || "all";
+    group = "all";
     if (sess.closed) return note("This programme has closed. Thank you for taking part.");
     if (sess.roster_only) $("emailHint").textContent = "Use the email you registered with for this programme. Your certificate and results will be sent there.";
     const here = store.get("ts_in_" + code), mine = store.get("ts_me_" + sess.pkey);
@@ -91,6 +91,7 @@
   const stopCam = () => { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } };
   async function openForm() {
     show("form");
+    sb.rpc("mda_list", { p_code: code }).then(({ data }) => { if (Array.isArray(data)) $("mdaList").innerHTML = data.map(o => `<option value="${esc(o)}">`).join(""); });
     if (stream) return;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
@@ -113,7 +114,7 @@
   $("form").addEventListener("submit", async e => {
     e.preventDefault();
     const title = document.querySelector("input[name=title]:checked")?.value || "", name = $("fName").value.trim().replace(/\s+/g, " ");
-    const email = $("fEmail").value.trim().toLowerCase(), org = $("fOrg").value.trim();
+    const email = $("fEmail").value.trim().toLowerCase(), org = $("fOrg").value.trim(), sex = document.querySelector("input[name=sex]:checked")?.value || "";
     if (!title) return ($("fErr").textContent = "Choose your title.");
     if (name.length < 3) return ($("fErr").textContent = "Enter your full name.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return ($("fErr").textContent = "Enter a valid email address.");
@@ -128,7 +129,8 @@
       if (!up.error) photo = sb.storage.from("ts-photos").getPublicUrl(path).data.publicUrl;
     } catch {}
     const args = { p_code: code, p_title: title, p_name: name, p_email: email, p_org: org, p_photo: photo };
-    let { data, error } = await sb.rpc("checkin", { ...args, p_device: DEV });
+    let { data, error } = await sb.rpc("checkin_v2", { p: { code, title, name, email, org, photo, device: DEV, sex } });
+    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin", { ...args, p_device: DEV }));
     if (missingFn(error)) ({ data, error } = await sb.rpc("checkin", args));
     $("fGo").disabled = false;
     if (error) return ($("fErr").textContent = SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you in. Check the connection and try again.");
@@ -150,7 +152,7 @@
     $("rPh").innerHTML = me.photo ? `<img src="${esc(me.photo)}" alt="">` : esc(initials(me.name));
     $("rIn").textContent = me.arrived_at ? "Checked in at " + fmtTime(me.arrived_at) : "";
     loadTime(); loadCert();
-    pickGroup(group);
+    loadGroup();
     await loadItems(); render(false);
     if (channel) return;
     channel = sb.channel("ts-" + code, { config: { broadcast: { self: false }, presence: { key: crypto.randomUUID() } } });
@@ -159,8 +161,14 @@
     channel.on("broadcast", { event: "feedback" }, () => loadFeedback(true));
     channel.on("broadcast", { event: "eval" }, () => loadEval(true));
     channel.on("broadcast", { event: "certs" }, () => loadCert(true));
+    channel.on("broadcast", { event: "groups" }, () => loadGroup(true));
     channel.on("broadcast", { event: "namecheck" }, () => loadCert(true, true));
     channel.on("broadcast", { event: "picked" }, ({ payload }) => {
+      if (payload?.grp) {
+        if (payload.grp !== group) return;
+        $("flyCard").innerHTML = `<span class="lbl" style="color:${TSGR.color(payload.grp)}">Spin the wheel</span><b style="font-family:var(--display);font-size:34px;line-height:1.05">🎯 Your group was picked!</b><p class="muted">${esc(payload.name || "")}, over to you.</p><button class="btn red" type="button" id="flyOk">OK</button>`;
+        $("fly").hidden = false; buzz([80, 60, 80, 60, 200]); $("flyOk").onclick = () => ($("fly").hidden = true); return;
+      }
       if (!payload || !(me.participant ? payload.participant === me.participant : payload.name === me.name)) return;
       $("flyCard").innerHTML = `<span class="lbl" style="color:var(--red)">Spin the wheel</span><b style="font-family:var(--display);font-size:34px;line-height:1.05">🎯 You've been picked!</b><p class="muted">Over to you, ${esc(String(me.name || "").split(" ")[0])}.</p><button class="btn red" type="button" id="flyOk">OK</button>`;
       $("fly").hidden = false; buzz([80, 60, 80, 60, 200]);
@@ -205,8 +213,40 @@
     $("flyOk").onclick = () => ($("fly").hidden = true);
     clearTimeout(fly.t); fly.t = setTimeout(() => ($("fly").hidden = true), 20000);
   }
-  function pickGroup(g) { group = g; store.set("ts_group_" + code, g); document.querySelectorAll("#groups button").forEach(b => b.setAttribute("aria-pressed", b.dataset.g === g)); channel?.track({ group, name: me?.name }); }
-  $("groups").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { pickGroup(b.dataset.g); render(false); } });
+  // ---------- my group ----------
+  let GRP = null;
+  async function loadGroup(fresh) {
+    if (!me) return;
+    const { data, error } = await sb.rpc("my_group", { p_code: code, p_token: me.token });
+    const box = $("grpBox");
+    if (error || !data || !data.groups) { GRP = null; box.hidden = true; if (group !== "all") { group = "all"; render(false); } return; }
+    const was = group; GRP = data; group = data.grp || "all";
+    const cfg = data.groups, k = data.grp;
+    if (k) {
+      box.className = "grpbox"; box.style.setProperty("--gc", TSGR.color(k));
+      box.innerHTML = `<span class="lbl">Your group</span><b class="gn">${esc(TSGR.name(cfg, k))}</b><span>${esc(TSGR.colorName(k))}${cfg.method === "choose" ? ` · <button type="button" class="btn ghost small" id="gChange" style="color:var(--ink)">Change</button>` : ""}</span>
+        ${(data.mates || []).length ? `<span class="mates">With ${esc(data.mates.slice(0, 12).join(", "))}${data.mates.length > 12 ? ` and ${data.mates.length - 12} more` : ""}</span>` : ""}`;
+      $("gChange")?.addEventListener("click", () => chooser(cfg));
+    } else if (cfg.method === "choose") chooser(cfg);
+    else { box.className = "grpbox pick"; box.innerHTML = `<span class="lbl">Groups</span><span>You'll be placed in a group in a moment.</span>`; }
+    box.hidden = false;
+    channel?.track({ group, name: me?.name });
+    if (fresh && k && k !== was) {
+      buzz([60, 50, 60, 50, 160]);
+      $("flyCard").innerHTML = `<span class="lbl" style="color:${TSGR.color(k)}">Groups</span><b style="font-family:var(--display);font-size:34px;line-height:1.05;color:${TSGR.color(k)}">You're in ${esc(TSGR.name(cfg, k))}</b><p class="muted">${esc(TSGR.colorName(k))}. Find your group in the room.</p><button class="btn red" type="button" id="flyOk">OK</button>`;
+      $("fly").hidden = false; $("flyOk").onclick = () => ($("fly").hidden = true);
+    }
+    if (was !== group) render(false);
+  }
+  function chooser(cfg) {
+    const box = $("grpBox"); box.className = "grpbox pick"; box.hidden = false;
+    box.innerHTML = `<span class="lbl">Pick your group</span><div class="gchoose">${TSGR.keys(cfg).map(k => `<button type="button" data-g="${k}" style="background:${TSGR.color(k)}">${esc(TSGR.name(cfg, k))}</button>`).join("")}</div><span class="err" id="gErr"></span>`;
+    box.querySelectorAll("[data-g]").forEach(b => b.addEventListener("click", async () => {
+      const { error } = await sb.rpc("choose_group", { p_code: code, p_token: me.token, p_grp: b.dataset.g });
+      if (error) return ($("gErr").textContent = error.message);
+      buzz(30); loadGroup(); channel?.send({ type: "broadcast", event: "checkin", payload: {} });
+    }));
+  }
 
   // ---------- live activities ----------
   const LET = "ABCDEF", COL = ["#F4B400", "#3FB98A", "#5AA9E6", "#F2786F", "#B48EF0", "#F0A35E"];
@@ -255,7 +295,7 @@
     const k = c.kind;
     if (k === "finger") return `<p class="res">✋ Raise your hand</p><p class="muted">Hold your hand up high, facing the screen, with:</p><div class="ord">${(q.options || []).map((o, i) => `<div style="grid-template-columns:44px 1fr"><b style="font-size:22px;color:var(--ink)">${i + 1}</b><span>${i + 1} finger${i ? "s" : ""} = ${esc(o)}</span></div>`).join("")}</div>`;
     if (q.options) return `<div class="ch">${q.options.map((o, i) => `<button type="button" data-i="${i}"><span class="let" style="background:${COL[i]}">${LET[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>
-      ${c.teams && group === "all" ? `<p class="small muted">Pick Group A or Group B below so your points count for your group.</p>` : ""}`;
+      ${c.teams && group === "all" ? `<p class="small muted">You're not in a group yet, so your points count for you only.</p>` : ""}`;
     if (k === "short") return `<input class="wi" id="aShort" maxlength="120" placeholder="Your answer" autocomplete="off"><button class="btn red" type="button" id="aSend">Send</button>`;
     if (k === "scale") { const lo = +q.min || 0, hi = +q.max || 10, mid = Math.round((lo + hi) / 2); return `<div class="sc"><output id="scOut">${mid}</output><input type="range" id="aScale" min="${lo}" max="${hi}" step="1" value="${mid}" aria-label="Your rating"><div class="scends"><span>${esc(q.low || lo)}</span><span>${esc(q.high || hi)}</span></div></div><button class="btn red" type="button" id="aSend">Send</button>`; }
     if (k === "feedback") return `<div class="stars5" id="stars5" role="radiogroup" aria-label="Stars">${[1, 2, 3, 4, 5].map(n => `<button type="button" data-st="${n}" role="radio" aria-checked="false" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}</div><textarea id="aText" rows="3" maxlength="600" placeholder="Anything to add? (optional)"></textarea><button class="btn red" type="button" id="aSend" disabled>Send</button>`;
@@ -263,7 +303,7 @@
     if (k === "order") { draft = draft || [...q.items]; return `<p class="small muted">Use the arrows to put them in the right order, top first.</p><div class="ord" id="ord">${ordRows()}</div><button class="btn red" type="button" id="aSend">Send my order</button>`; }
     if (k === "match") return `<div class="mt">${q.lefts.map((l, i) => `<label>${esc(l)}<select data-m="${i}"><option value="">Choose…</option>${q.rights.map(r => `<option>${esc(r)}</option>`).join("")}</select></label>`).join("")}</div><button class="btn red" type="button" id="aSend">Send my matches</button>`;
     if (k === "spot") return `<p class="small muted">Tap where the error is, then send.</p><div class="sp" id="sp"><img src="${esc(q.image)}" alt="Find the error">${draft ? `<span class="dot" style="left:${draft.x * 100}%;top:${draft.y * 100}%"></span>` : ""}</div><button class="btn red" type="button" id="aSend" ${draft ? "" : "disabled"}>Send my tap</button>`;
-    return `<textarea id="aText" rows="${k === "case" ? 6 : 4}" maxlength="1500" placeholder="${k === "exit" ? "One thing I'll apply at my desk…" : "Your answer…"}"></textarea>${c.teams && group === "all" ? `<p class="small muted">Pick your group below so your answer counts for it.</p>` : ""}<button class="btn red" type="button" id="aSend">Send</button>`;
+    return `<textarea id="aText" rows="${k === "case" ? 6 : 4}" maxlength="1500" placeholder="${k === "exit" ? "One thing I'll apply at my desk…" : "Your answer…"}"></textarea>${c.teams && group === "all" ? `<p class="small muted">You're not in a group yet, so this answer is yours alone.</p>` : ""}<button class="btn red" type="button" id="aSend">Send</button>`;
   }
   const ordRows = () => draft.map((it, i) => `<div><b>${i + 1}</b><span>${esc(it)}</span><button type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move up">↑</button><button type="button" data-dn="${i}" ${i === draft.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button></div>`).join("");
   function wireAnswer(c, q) {
