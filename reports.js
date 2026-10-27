@@ -130,12 +130,67 @@ window.TSR = (() => {
       </div>${foot()}</article>`;
   }
 
-  function programme(p, list, people) {
+  // ---------- programme executive summary ----------
+  const dm = s => { const d = new Date(String(s).slice(0, 10) + "T00:00:00"); return isNaN(d) ? "" : `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+  function autoProgrammeSummary(p, list, people) {
+    const out = [], held = list.filter(d => d.attendees), ds = list.map(d => d.s.session_date).filter(Boolean).sort();
+    const when = p.dates ? `held ${/\bto\b|–|—|-/.test(p.dates) ? "from " : /^\d/.test(p.dates) ? "on " : ""}${p.dates}` : ds.length ? (ds[0] === ds[ds.length - 1] ? `held on ${dmy(ds[0])}` : `held from ${dmy(ds[0])} to ${dmy(ds[ds.length - 1])}`) : "";
+    const leads = [...new Set(list.map(d => String(d.s.course_lead || "").trim()).filter(Boolean))];
+    let p1 = `This report summarises the ${p.name} programme${p.code ? ` (${p.code})` : ""}${when ? `, ${when}` : ""}${p.venue ? ` at ${p.venue}` : ""}.`;
+    if (list.length) p1 += ` The programme had ${plural(list.length, "session")}: ${andList(list.map(d => `“${d.s.topic}”${d.s.session_date ? ` (${dm(d.s.session_date)})` : ""}`))}.`;
+    if (leads.length) p1 += ` ${leads.length === 1 ? `It was facilitated by ${leads[0]}` : `Sessions were facilitated by ${andList(leads)}`}.`;
+    out.push(p1);
+    if (String(p.background || "").trim()) out.push(String(p.background).trim());
+    if (String(p.rationale || "").trim()) out.push(String(p.rationale).trim());
+    const obj = String(p.objectives || "").split("\n").map(x => cleanEnd(x.replace(/^\s*(\d+[.)]|[-•*])\s*/, ""))).filter(Boolean);
+    if (obj.length) out.push(obj.length === 1 ? `The programme's objective was that participants would be able to ${lower1(obj[0])}.`
+      : `By the end of the programme, participants were expected to be able to ${andList(obj.map((o, i) => `(${["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"][i] || i + 1}) ${lower1(o)}`))}.`);
+    // people across sessions
+    const ppl = new Map(); list.forEach(d => d.roll.forEach(r => { const e = ppl.get(r.participant) || { ...r, n: 0 }; e.n++; ppl.set(r.participant, e); }));
+    const P = [...ppl.values()], men = P.filter(r => r.sex === "male").length, women = P.filter(r => r.sex === "female").length, other = P.length - men - women;
+    if (P.length) {
+      const orgs = new Map(); P.forEach(r => { const raw = String(r.organisation || "").trim(); if (!raw) return; const k = raw.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); const e = orgs.get(k) || { label: raw, n: 0 }; e.n++; orgs.set(k, e); });
+      const O = [...orgs.values()].sort((a, b) => b.n - a.n), all = held.length > 1 ? P.filter(r => r.n >= held.length).length : null;
+      let t = `${Plural(P.length, "participant")} took part${men + women ? ` (${andList([men ? plural(men, "man", "men") : "", women ? plural(women, "woman", "women") : ""].filter(Boolean))}${other ? `, and ${other} who did not say` : ""})` : ""}${O.length ? `, drawn from ${plural(O.length, "organisation")}${O.length > 1 ? `, including ${andList(O.slice(0, 3).map(o => o.label))}` : `: ${O[0].label}`}` : ""}.`;
+      if (held.length > 1) t += ` Average attendance was ${Math.round(avg(held.map(d => d.attendees)))} per session, and ${plural(all, "participant")} attended every session.`;
+      const tp = held.filter(d => d.timePct != null); if (tp.length) t += ` Participants were present for ${Math.round(avg(tp.map(d => d.timePct)))}% of session time on average.`;
+      out.push(t);
+    } else out.push("No participants have checked in to this programme's sessions yet.");
+    const eng = [], runs = held.reduce((a, d) => a + (d.runs || 0), 0), parts = held.filter(d => d.partAvg != null && d.runs);
+    if (runs) eng.push(`${Plural(runs, "interactive activity", "interactive activities")} ${runs === 1 ? "was" : "were"} run across the programme, with an average participation rate of ${Math.round(avg(parts.map(d => d.partAvg)) || 0)}%.`);
+    const tested = held.filter(d => d.achAvg != null);
+    if (tested.length) {
+      const best = tested.slice().sort((a, b) => b.achAvg - a.achAvg)[0];
+      eng.push(`In ${tested.length === 1 ? "the one session" : `the ${tested.length} sessions`} with a pre-test and post-test, average scores moved from ${Math.round(avg(tested.map(d => d.pre)))}% to ${Math.round(avg(tested.map(d => d.post)))}%, an average learning achievement of ${Math.round(avg(tested.map(d => d.achAvg)))}%${tested.length > 1 ? `; the strongest gain was in “${best.s.topic}” (${Math.round(best.achAvg)}%)` : ""}.`);
+    }
+    if (eng.length) out.push(eng.join(" "));
+    const rated = held.filter(d => d.eval?.overall != null), nEval = held.reduce((a, d) => a + (d.evalN || 0), 0);
+    if (rated.length) {
+      const reac = rated.filter(d => d.eval.reaction != null), lrn = rated.filter(d => d.eval.learning != null);
+      out.push(`Participants completed ${plural(nEval, "evaluation")} and rated the programme ${avg(rated.map(d => d.eval.overall)).toFixed(1)} out of 5 on average${reac.length ? `, with reaction (Kirkpatrick level 1) at ${Math.round(avg(reac.map(d => d.eval.reaction)))}%` : ""}${lrn.length ? ` and self-reported learning (level 2) at ${Math.round(avg(lrn.map(d => d.eval.learning)))}%` : ""}.`);
+    }
+    if (p.certificates && people) {
+      const q = people.filter(x => x.qualifies).length, iss = people.filter(x => x.cert?.status === "valid").length;
+      out.push(iss ? `${Plural(iss, "certificate")} ${iss === 1 ? "was" : "were"} issued${q !== iss ? `; ${q} participant${q === 1 ? "" : "s"} met the certificate rules` : ""}.` : `${Plural(q, "participant")} met the certificate rules; certificates have not yet been issued.`);
+    }
+    const ach = tested.length ? avg(tested.map(d => d.achAvg)) : null, rate = rated.length ? avg(rated.map(d => d.eval.overall)) : null;
+    if (ach != null || rate != null) {
+      const good = (ach == null || ach >= 50) && (rate == null || rate >= 4), fair = (ach == null || ach >= 25) && (rate == null || rate >= 3.5);
+      out.push(`Overall, the results ${good ? "indicate that the programme met its objectives, with clear learning gains and positive feedback from participants" : fair ? "indicate that the programme largely met its objectives, with room to strengthen some areas" : "point to areas for improvement, which are reflected in the analytics that follow"}.`);
+    }
+    return out.join("\n\n");
+  }
+
+  function programme(p, list, people, prof) {
     const run = list.filter(d => d.s.status === "completed" || d.attendees), uniq = people ? people.filter(x => (x.per || []).some(y => y.here)).length : null;
     const issued = people ? people.filter(x => x.cert?.status === "valid").length : null;
     const rated = list.filter(d => d.eval?.overall != null);
     const meta = [p.code, p.dates, p.venue].filter(Boolean).map(esc).join(" · ") || `${list.length} session${list.length === 1 ? "" : "s"}`;
+    const text = (p.report && String(p.report.summary || "").trim()) || autoProgrammeSummary(p, list, people);
     return `<article class="rpt">${head("Programme report", p.name, meta, p.cert_design?.logo)}
+      <section class="rsum"><h2>Executive summary</h2><div class="rsumtext" id="rSumText">${text.split(/\n\s*\n/).map(x => `<p>${esc(x.trim()).replace(/\n/g, "<br>")}</p>`).join("")}</div>
+        <div class="rsign">${prof?.signature ? `<img src="${esc(prof.signature)}" alt="Signature">` : `<span class="rsig-blank"></span>`}<span class="rline"></span><b>${esc(prof?.full_name || "Programme Lead")}</b><span>${esc(prof?.job_title || "Programme Lead")}</span><span>${esc(dmy(new Date().toISOString()))}</span></div></section>
+      <h2 class="rpart">Analytics</h2>
       <div class="rks">${kpi("Sessions held", `${run.length}<small>/${list.length}</small>`, "", "#1F5FBF")}
         ${kpi("Participants", uniq ?? Math.max(0, ...list.map(d => d.attendees)), "Took part in at least one session", "#0F8A5F")}
         ${kpi("Average attendance", list.length ? Math.round(avg(run.map(d => d.attendees)) || 0) : "–", "Per session", "#D2391F")}
@@ -148,5 +203,5 @@ window.TSR = (() => {
         <p class="rnote">S1, S2… are the sessions in the table above; each cell shows the share of that session the person was in the room.</p></section>` : ""}
       ${foot()}</article>`;
   }
-  return { sessionData, session, programme, dmy, autoSummary };
+  return { sessionData, session, programme, dmy, autoSummary, autoProgrammeSummary };
 })();

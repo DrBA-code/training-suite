@@ -24,6 +24,16 @@ begin
 end $$;
 grant execute on function public.update_my_signature(text, text) to authenticated;
 
+-- The programme report's executive summary: background, rationale and objectives for the programme,
+-- and an edited summary kept with it.
+alter table public.programmes
+  add column if not exists background text not null default '',
+  add column if not exists rationale  text not null default '',
+  add column if not exists objectives text not null default '',
+  add column if not exists report     jsonb;
+alter table public.programmes drop constraint if exists programmes_texts_len;
+alter table public.programmes add constraint programmes_texts_len check (char_length(background) <= 4000 and char_length(rationale) <= 4000 and char_length(objectives) <= 4000);
+
 -- Running a programme again also copies each session's background and rationale.
 create or replace function public.copy_programme(p_programme uuid, p_name text, p_code text, p_dates text, p_start date)
 returns uuid language plpgsql security definer set search_path = public as $$
@@ -32,9 +42,9 @@ begin
   if not public.ts_owns_programme(p_programme) then raise exception 'Not your programme'; end if;
   if char_length(trim(coalesce(p_name,''))) < 3 then raise exception 'Give the new programme a name'; end if;
   select * into p from public.programmes where id = p_programme;
-  insert into public.programmes (owner_id, name, code, dates, venue, certificates, cert_rule, cert_design, cert_rules, roster_only, access_days)
+  insert into public.programmes (owner_id, name, code, dates, venue, certificates, cert_rule, cert_design, cert_rules, roster_only, access_days, background, rationale, objectives)
   values (auth.uid(), left(trim(p_name), 200), left(coalesce(p_code, ''), 60), left(coalesce(p_dates, ''), 120), p.venue,
-          p.certificates, p.cert_rule, p.cert_design, p.cert_rules, p.roster_only, p.access_days)
+          p.certificates, p.cert_rule, p.cert_design, p.cert_rules, p.roster_only, p.access_days, p.background, p.rationale, p.objectives)
   returning * into np;
   select min(session_date) into first from public.sessions where programme_id = p.id;
   shift := case when p_start is not null and first is not null then p_start - first else null end;

@@ -342,7 +342,27 @@
     }
     const list = sessions.filter(x => x.programme_id === p.id && x.status !== "draft").sort((a, b) => (a.session_date || "9999").localeCompare(b.session_date || "9999"));
     const [datas, pc] = await Promise.all([Promise.all(list.map(x => TSR.sessionData(sb, x))), sb.rpc("programme_certificates", { p_programme: p.id }).then(r => r.data).catch(() => null)]);
-    if ($("rBox")) $("rBox").innerHTML = TSR.programme(p, datas, pc?.people || null);
+    const people = pc?.people || null;
+    const drawP = () => {
+      if (!$("rBox")) return;
+      $("rBox").innerHTML = TSR.programme(p, datas, people, profile);
+      const edited = !!(p.report && String(p.report.summary || "").trim());
+      $("rBox").insertAdjacentHTML("afterbegin", `<div class="rsumbar no-print"><span class="small muted">${edited ? "Summary edited by you." : "Summary written from the programme's details and its sessions' results."}${!String(p.background || "").trim() && !String(p.rationale || "").trim() ? ` Add a background, rationale and objectives in <a href="#/programmes?edit=${p.id}">Edit programme</a>.` : ""}${profile.signature ? "" : ` Add your signature in <a href="#/settings">Settings</a> to sign reports.`}</span>
+        <span class="row"><button class="btn ghost small" type="button" id="sumEdit">Edit summary</button>${edited ? `<button class="btn ghost small" type="button" id="sumReset">Back to the automatic summary</button>` : ""}</span></div>`);
+      $("sumEdit").onclick = () => {
+        const box = $("rSumText"), text = (p.report?.summary || "").trim() || TSR.autoProgrammeSummary(p, datas, people);
+        box.innerHTML = `<textarea class="in" id="sumTa" rows="18" style="width:100%;font:inherit;line-height:1.6">${esc(text)}</textarea><div class="row no-print" style="margin-top:8px"><button class="btn red small" type="button" id="sumSave">Save summary</button><button class="btn ghost small" type="button" id="sumCancel">Cancel</button><span class="small muted">Leave a blank line between paragraphs.</span><span class="err" id="sumErr"></span></div>`;
+        $("sumTa").focus(); $("sumCancel").onclick = drawP;
+        $("sumSave").onclick = () => saveP({ summary: $("sumTa").value.trim(), edited_at: new Date().toISOString() });
+      };
+      $("sumReset")?.addEventListener("click", () => saveP(null));
+    };
+    const saveP = async rep => {
+      const { data, error } = await sb.from("programmes").update({ report: rep }).eq("id", p.id).select().single();
+      if (error) { const m = /report|schema cache/i.test(error.message || "") ? "Run supabase/schema-15-report.sql in Supabase first." : errText(error, "Couldn't save."); const e = $("sumErr"); if (e) e.textContent = m; else toast(m); return; }
+      Object.assign(p, data); progs = progs.map(x => x.id === p.id ? data : x); toast(rep ? "Summary saved" : "Back to the automatic summary"); drawP();
+    };
+    drawP();
   }
   function viewReports() {
     const cards = progs.map(p => {
@@ -363,6 +383,9 @@
       <label class="fld">Programme code<input name="code" value="${esc(p?.code)}" placeholder="e.g. PSSDC/AI/2026/01"></label>
       <label class="fld">Dates<input name="dates" value="${esc(p?.dates)}" placeholder="e.g. 3 to 7 November 2026"></label>
       <label class="fld full">Venue<input name="venue" value="${esc(p?.venue)}"></label>
+      <label class="fld full">Background <span class="hint" style="display:inline">(optional, for the programme report)</span><textarea name="background" rows="3" placeholder="The context: who requested the programme and the situation it responds to.">${esc(p?.background || "")}</textarea></label>
+      <label class="fld full">Rationale <span class="hint" style="display:inline">(optional)</span><textarea name="rationale" rows="3" placeholder="Why the programme matters now and what it should change at work.">${esc(p?.rationale || "")}</textarea></label>
+      <label class="fld full">Programme objectives <span class="hint" style="display:inline">(optional, one per line)</span><textarea name="objectives" rows="3" placeholder="By the end of the programme, participants will be able to…">${esc(p?.objectives || "")}</textarea></label>
       <label class="opt full"><input type="checkbox" name="certificates" ${p?.certificates ? "checked" : ""}><span><b>Issue certificates (optional)</b><span class="muted">Given at the end of the programme's last session.</span></span></label>
       <label class="opt full"><input type="checkbox" name="focus" ${p?.focus_allowed ? "checked" : ""}><span><b>Allow Focus mode</b><span class="muted">The facilitator can turn it on during a session: phones are asked to stay on Training Suite, and leaving is logged.</span></span></label>
       <label class="fld">Who qualifies<select name="cert_rule">${[["completion", "Completion: attended, post-test and evaluation"], ["attendance", "Attendance only"], ["achievement", "Achievement: completion plus a pass mark"]].map(([v, t]) => `<option value="${v}" ${p?.cert_rule === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
@@ -394,6 +417,8 @@
         e.preventDefault();
         const row = { name: f.name.value.trim(), code: f.code.value.trim(), dates: f.dates.value.trim(), venue: f.venue.value.trim(), certificates: f.certificates.checked, cert_rule: f.cert_rule.value };
         const was = editing && progs.find(p => p.id === editing)?.focus_allowed; if (f.focus.checked || was) row.focus_allowed = f.focus.checked;
+        const old = editing ? progs.find(p => p.id === editing) : null;
+        ["background", "rationale", "objectives"].forEach(k => { const v = f[k].value.trim(); if (v || (old && old[k])) row[k] = v; });
         if (row.name.length < 3) return ($("pErr").textContent = "Give the programme a name.");
         $("pErr").textContent = "Saving…";
         const res = editing ? await sb.from("programmes").update(row).eq("id", editing).select().single() : await sb.from("programmes").insert(row).select().single();
