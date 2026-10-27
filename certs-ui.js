@@ -318,5 +318,5 @@ window.TSCU = (() => {
     };
     draw();
   }
-  return { editor, tab, infoOf, rulesOf };
+  return { editor, tab, infoOf, rulesOf, drawPad, fileToCanvas, clearWhite, putAsset };
 })();

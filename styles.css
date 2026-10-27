@@ -950,3 +950,20 @@ table.t tbody tr:last-child td{border-bottom:0}
 .fxt th{position:sticky;top:0;background:var(--spanel);text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--smuted);padding:8px 10px}
 .fxt td{padding:8px 10px;border-top:1px solid var(--sline)}
 .fxt td img{width:28px;height:28px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px}
+
+/* ---------- Session report: executive summary ---------- */
+.rsumbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;max-width:1060px;margin:0 auto 12px}
+.rsum h2,.rpart{font-family:var(--display);font-size:20px;font-weight:800;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid #E3E5E8}
+.rsumtext p{margin:0 0 12px;line-height:1.65;font-size:14.5px;text-align:justify;hyphens:auto}
+.rsign{display:flex;flex-direction:column;gap:2px;width:260px;margin-top:22px}
+.rsign img{height:60px;width:auto;max-width:240px;object-fit:contain;object-position:left bottom}
+.rsig-blank{height:60px}
+.rline{border-top:1.3px solid #14161C;margin:2px 0 6px}
+.rsign b{font-size:14.5px}
+.rsign span{font-size:13px;color:#4B5060}
+.rpart{margin-top:6px}
+@media print{
+  .rsumbar{display:none!important}
+  .rsumtext p{font-size:12.5px;line-height:1.6}
+  .rpart{break-before:page;margin-top:0}
+}

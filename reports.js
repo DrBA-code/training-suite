@@ -19,11 +19,12 @@ window.TSR = (() => {
       safe(sb.rpc("session_learning", { p_session: s.id })), (s.evaluation || {}).mode === "none" ? Promise.resolve(null) : safe(sb.rpc("session_evaluation", { p_session: s.id }))]);
     const R = roll || [], P = part || [], L = (learn || []).map(r => ({ ...r, a: r.took_pre && r.took_post ? ach(+r.pre, +r.post) : null }));
     const start = s.started_at ? new Date(s.started_at) : R.length ? new Date(Math.min(...R.map(r => +new Date(r.arrived_at)))) : null;
+    const firstIn = R.length ? new Date(Math.min(...R.map(r => +new Date(r.arrived_at)))) : null;
     const end = s.ended_at ? new Date(s.ended_at) : null, span = start && end ? (end - start) / 1000 : null;
     const items = window.TSE ? TSE.formFor(s, s.evaluation || {}) : [], E = ev && window.TSE ? TSE.score(items, ev.rows || []) : null;
     const mda = new Map(); R.forEach(r => { const raw = String(r.organisation || "").trim(); if (!raw) return; const k = window.TSGR ? TSGR.norm(raw) : raw.toLowerCase(); const e = mda.get(k) || { label: raw, n: 0 }; e.n++; mda.set(k, e); });
     return {
-      s, roll: R, part: P, learn: L, eval: E, evalN: ev?.rows?.length || 0, attendees: R.length,
+      s, roll: R, part: P, startAt: s.started_at ? new Date(s.started_at) : firstIn, endAt: s.ended_at ? new Date(s.ended_at) : null, learn: L, eval: E, evalN: ev?.rows?.length || 0, attendees: R.length,
       spent: avg(R.map(r => r.spent_seconds || 0)), span, timePct: span ? avg(R.map(r => Math.min(100, 100 * (r.spent_seconds || 0) / span))) : null,
       early: end ? R.filter(r => r.left_at && end - new Date(r.left_at) > 10 * 60000).length : R.filter(r => r.left_at).length,
       awayAvg: avg(R.map(r => r.away_seconds || 0)),
@@ -40,12 +41,73 @@ window.TSR = (() => {
   const head = (kind, title, meta, logo) => `<header class="rh"><div><span class="rkind">${esc(kind)}</span><h1>${esc(title)}</h1><p>${meta}</p></div>${logo ? `<img src="${esc(logo)}" alt="" class="rlogo">` : `<span class="rbrand"><img src="assets/logo.png" alt="" width="26" height="28"> Training Suite</span>`}</header>`;
   const foot = () => `<footer class="rf">Prepared with Training Suite on ${esc(dmy(new Date().toISOString()))}. Learning achievement = (post-test − pre-test) ÷ (100 − pre-test).</footer>`;
 
-  function session(d, p) {
+  // ---------- executive summary: prose, no charts ----------
+  const tm = d => d ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase().replace(/\s+/g, " ") : "";
+  const dur = sec => { const m = Math.round(sec / 60), h = Math.floor(m / 60), r = m % 60; return [h ? `${h} hour${h === 1 ? "" : "s"}` : "", r ? `${r} minute${r === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ") || "under a minute"; };
+  const andList = xs => xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+  const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
+  const Plural = (n, one, many) => `${WORDS[n] || n} ${n === 1 ? one : many || one + "s"}`;   // at the start of a sentence
+  const cleanEnd = t => String(t || "").trim().replace(/[.;:,\s]+$/, "");
+  const lower1 = t => t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+  function autoSummary(d, p) {
+    const s = d.s, E = d.eval, out = [];
+    const obj = String(s.objectives || "").split("\n").map(x => cleanEnd(x.replace(/^\s*(\d+[.)]|[-•*])\s*/, ""))).filter(Boolean);
+    const where = [dmy(s.session_date) ? `on ${dmy(s.session_date)}` : "", s.venue ? `at ${s.venue}` : ""].filter(Boolean).join(" ");
+    let p1 = `This report summarises the session “${s.topic}”${p?.name ? `, part of the ${p.name} programme` : ""}${where ? `, held ${where}` : ""}.`;
+    if (d.startAt && d.endAt && d.endAt > d.startAt) p1 += ` The session started at ${tm(d.startAt)} and ended at ${tm(d.endAt)}, a duration of ${dur((d.endAt - d.startAt) / 1000)}.`;
+    else if (s.start_time) p1 += ` It was scheduled to start at ${s.start_time}.`;
+    if (s.course_lead) p1 += ` It was facilitated by ${s.course_lead}.`;
+    out.push(p1);
+    if (String(s.background || "").trim()) out.push(String(s.background).trim());
+    if (String(s.rationale || "").trim()) out.push(String(s.rationale).trim());
+    if (!String(s.background || "").trim() && !String(s.rationale || "").trim() && (s.main_topic || s.key_skill))
+      out.push(`The session focused on ${s.main_topic || s.topic}${s.key_skill ? `, so that participants would be able to ${lower1(cleanEnd(s.key_skill.replace(/^i can now\s+/i, "")))}` : ""}.`);
+    if (obj.length) out.push(obj.length === 1 ? `Its objective was that, by the end of the session, participants would be able to ${lower1(obj[0])}.`
+      : `By the end of the session, participants were expected to be able to ${andList(obj.map((o, i) => `(${["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"][i] || i + 1}) ${lower1(o)}`))}.`);
+    if (d.attendees) {
+      const sx = d.sex.male + d.sex.female ? ` (${andList([d.sex.male ? plural(d.sex.male, "man", "men") : "", d.sex.female ? plural(d.sex.female, "woman", "women") : ""].filter(Boolean))}${d.sex.other ? `, and ${d.sex.other} who did not say` : ""})` : "";
+      const orgs = d.mdas.length ? `, drawn from ${plural(d.mdas.length, "organisation")}${d.mdas.length > 1 ? `, including ${andList(d.mdas.slice(0, 3).map(m => m.label))}` : `: ${d.mdas[0].label}`}` : "";
+      let p = `${Plural(d.attendees, "participant")} attended${sx}${orgs}.`;
+      if (d.timePct != null) p += ` On average, participants were present for ${Math.round(d.timePct)}% of the session${d.early ? `, and ${plural(d.early, "participant")} left before the end` : ""}.`;
+      out.push(p);
+    } else out.push("No participants checked in for this session.");
+    const eng = [];
+    if (d.runs) eng.push(`${Plural(d.runs, "interactive activity", "interactive activities")} ${d.runs === 1 ? "was" : "were"} run, with an average participation rate of ${Math.round(d.partAvg || 0)}%.`);
+    if (d.pre != null && d.post != null) eng.push(`Knowledge was measured with a pre-test and a post-test: the average score moved from ${Math.round(d.pre)}% to ${Math.round(d.post)}%${d.achAvg != null ? `, a learning achievement of ${Math.round(d.achAvg)}%` : ""}${d.both && d.both < d.attendees ? ` (based on the ${d.both} participants who took both tests)` : ""}.`);
+    else if (d.post != null) eng.push(`The average post-test score was ${Math.round(d.post)}%.`);
+    if (eng.length) out.push(eng.join(" "));
+    if (E && d.evalN) {
+      let p = `${Plural(d.evalN, "participant")} completed the evaluation${E.overall != null ? `, rating the session ${E.overall.toFixed(1)} out of 5 overall` : ""}.`;
+      if (E.reaction != null || E.learning != null) p += ` Reaction to the session (Kirkpatrick level 1) scored ${E.reaction ?? "–"}% and self-reported learning (level 2) ${E.learning ?? "–"}%${E.before != null && E.after != null ? `; self-rated knowledge of the topic rose from ${E.before.toFixed(1)} to ${E.after.toFixed(1)} out of 5` : ""}.`;
+      const best = E.texts.find(t => t.id === "best")?.answers?.[0]?.t, imp = E.texts.find(t => t.id === "improve")?.answers?.[0]?.t;
+      if (best || imp) p += ` ${best ? `Participants valued “${cleanEnd(best)}”` : ""}${best && imp ? ", and" : ""}${imp ? `${best ? " suggested" : "Participants suggested"} “${cleanEnd(imp)}”` : ""}.`;
+      out.push(p);
+    }
+    const ach = d.achAvg, rate = E?.overall;
+    if (ach != null || rate != null) {
+      const good = (ach == null || ach >= 50) && (rate == null || rate >= 4), fair = (ach == null || ach >= 25) && (rate == null || rate >= 3.5);
+      out.push(`Overall, the results ${good ? "indicate that the session met its objectives, with clear learning gains and positive feedback from participants" : fair ? "indicate that the session largely met its objectives, with room to strengthen some areas" : "point to areas for improvement, which are reflected in the analytics that follow"}.`);
+    }
+    return out.join("\n\n");
+  }
+  const sameName = (a, b) => { const n = x => String(x || "").toLowerCase().replace(/^(prof|dr|engr|mr|mrs|miss|ms)\.?\s+/i, "").replace(/[^a-z ]/g, "").trim(); return !!n(a) && !!n(b) && (n(a).includes(n(b)) || n(b).includes(n(a))); };
+  function summaryBlock(d, p, prof) {
+    const s = d.s, text = (s.report && String(s.report.summary || "").trim()) || autoSummary(d, p);
+    const me = !s.course_lead || sameName(s.course_lead, prof?.full_name), name = s.course_lead || prof?.full_name || "Facilitator";
+    const sig = me ? prof?.signature : "", title = me ? prof?.job_title || "Facilitator" : "Facilitator";
+    return `<section class="rsum"><h2>Executive summary</h2><div class="rsumtext" id="rSumText">${text.split(/\n\s*\n/).map(x => `<p>${esc(x.trim()).replace(/\n/g, "<br>")}</p>`).join("")}</div>
+      <div class="rsign">${sig ? `<img src="${esc(sig)}" alt="Signature">` : `<span class="rsig-blank"></span>`}<span class="rline"></span><b>${esc(name)}</b><span>${esc(title)}</span><span>${esc(dmy((s.ended_at || new Date().toISOString())))}</span></div></section>`;
+  }
+
+  function session(d, p, prof) {
     const s = d.s, E = d.eval, obj = String(s.objectives || "").split("\n").map(x => x.trim()).filter(Boolean);
     const meta = [p?.name, dmy(s.session_date), s.start_time, s.venue, s.course_lead && "Course lead: " + s.course_lead].filter(Boolean).map(esc).join(" · ");
     const strong = E ? E.per.filter(i => i.avg != null && i.type !== "stars" && !["before", "after"].includes(i.id)).sort((a, b) => b.avg - a.avg) : [];
     const comments = E ? E.texts.flatMap(t => t.answers.slice(0, 4).map(a => ({ q: t.id, t: a.t }))) : [];
     return `<article class="rpt">${head("Session report", s.topic, meta, p?.cert_design?.logo)}
+      ${summaryBlock(d, p, prof)}
+      <h2 class="rpart">Analytics</h2>
       <div class="rks">${kpi("Checked in", d.attendees, d.sex.male + d.sex.female ? `${d.sex.male} men · ${d.sex.female} women${d.sex.other ? ` · ${d.sex.other} not said` : ""}` : "", "#1F5FBF")}
         ${kpi("Time in the room", d.timePct != null ? pct(d.timePct) : hm(d.spent), d.timePct != null ? `Average ${hm(d.spent)} of ${hm(d.span)}` : "Average per person", "#0F8A5F")}
         ${kpi("Participation", pct(d.partAvg), `${d.runs} activit${d.runs === 1 ? "y" : "ies"} run`, "#D2391F")}
@@ -86,5 +148,5 @@ window.TSR = (() => {
         <p class="rnote">S1, S2… are the sessions in the table above; each cell shows the share of that session the person was in the room.</p></section>` : ""}
       ${foot()}</article>`;
   }
-  return { sessionData, session, programme, dmy };
+  return { sessionData, session, programme, dmy, autoSummary };
 })();

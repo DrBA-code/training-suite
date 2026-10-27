@@ -317,7 +317,29 @@
     if (!p || (kind === "s" && !s)) return V(`<p class="muted">Report not found. <a href="#/reports">Back to reports</a></p>`);
     V(`<div class="rbar no-print"><a class="btn ghost small" href="${kind === "s" ? "#/session/" + s.id : "#/reports"}">← Back</a><span class="small muted">Use your browser's print window to print it or choose “Save as PDF”.</span><button class="btn red small" type="button" id="rPrint">Print or save as PDF</button></div><div id="rBox"><p class="muted">Preparing the report…</p></div>`);
     $("rPrint").onclick = () => window.print();
-    if (kind === "s") { const d = await TSR.sessionData(sb, s); if ($("rBox")) $("rBox").innerHTML = TSR.session(d, p); return; }
+    if (kind === "s") {
+      const d = await TSR.sessionData(sb, s); if (!$("rBox")) return;
+      const draw = () => {
+        $("rBox").innerHTML = TSR.session(d, p, profile);
+        const edited = !!(s.report && String(s.report.summary || "").trim());
+        $("rBox").insertAdjacentHTML("afterbegin", `<div class="rsumbar no-print"><span class="small muted">${edited ? "Summary edited by you." : "Summary written from the session's details and results."}${!String(s.background || "").trim() && !String(s.rationale || "").trim() ? ` Add a background and rationale in <a href="#/edit/${s.id}">Edit → Session</a>.` : ""}${profile.signature ? "" : ` Add your signature in <a href="#/settings">Settings</a> to sign reports.`}</span>
+          <span class="row"><button class="btn ghost small" type="button" id="sumEdit">Edit summary</button>${edited ? `<button class="btn ghost small" type="button" id="sumReset">Back to the automatic summary</button>` : ""}</span></div>`);
+        $("sumEdit").onclick = () => {
+          const box = $("rSumText"), text = (s.report?.summary || "").trim() || TSR.autoSummary(d, p);
+          box.innerHTML = `<textarea class="in" id="sumTa" rows="16" style="width:100%;font:inherit;line-height:1.6">${esc(text)}</textarea><div class="row no-print" style="margin-top:8px"><button class="btn red small" type="button" id="sumSave">Save summary</button><button class="btn ghost small" type="button" id="sumCancel">Cancel</button><span class="small muted">Leave a blank line between paragraphs.</span><span class="err" id="sumErr"></span></div>`;
+          $("sumTa").focus();
+          $("sumCancel").onclick = draw;
+          $("sumSave").onclick = () => saveSummary({ summary: $("sumTa").value.trim(), edited_at: new Date().toISOString() });
+        };
+        $("sumReset")?.addEventListener("click", () => saveSummary(null));
+      };
+      const saveSummary = async rep => {
+        const { data, error } = await sb.from("sessions").update({ report: rep }).eq("id", s.id).select().single();
+        if (error) { const e = $("sumErr"); const m = /report|schema cache/i.test(error.message || "") ? "Run supabase/schema-15-report.sql in Supabase first." : errText(error, "Couldn't save."); if (e) e.textContent = m; else toast(m); return; }
+        Object.assign(s, data); sessions = sessions.map(x => x.id === s.id ? data : x); d.s = s; toast(rep ? "Summary saved" : "Back to the automatic summary"); draw();
+      };
+      draw(); return;
+    }
     const list = sessions.filter(x => x.programme_id === p.id && x.status !== "draft").sort((a, b) => (a.session_date || "9999").localeCompare(b.session_date || "9999"));
     const [datas, pc] = await Promise.all([Promise.all(list.map(x => TSR.sessionData(sb, x))), sb.rpc("programme_certificates", { p_programme: p.id }).then(r => r.data).catch(() => null)]);
     if ($("rBox")) $("rBox").innerHTML = TSR.programme(p, datas, pc?.people || null);
@@ -457,7 +479,7 @@
         venue: src?.venue || "", course_lead: src?.course_lead || profile.full_name || "", objectives: src?.objectives || "", main_topic: src?.main_topic || "", key_skill: src?.key_skill || "",
         pre_test: src ? src.pre_test : true, post_test: src ? src.post_test : true, tools: new Set((src?.tools || ["quiz", "exit"]).filter(t => t !== "wheel" && t !== "throw")),
         flow: src?.flow || [], evaluation: src?.evaluation || { mode: "default", anonymous: true, at_tapout: true }, files: src?.files || [], slide_count: src?.slide_count || 0,
-        attendance_code: src?.attendance_code || "", groups: src ? src.groups : undefined };
+        attendance_code: src?.attendance_code || "", groups: src ? src.groups : undefined, background: src?.background || "", rationale: src?.rationale || "", hadBg: !!(src?.background || src?.rationale) };
       W.at = Math.min(W.at || 0, LAST);
     }
     drawWizard();
@@ -466,7 +488,7 @@
   function grabStep() {
     const v = $("view");
     if (W.at === 0) {
-      ["programme_id", "topic", "session_date", "start_time", "venue", "course_lead", "objectives", "main_topic", "key_skill"].forEach(k => (W[k] = wizardField(k)));
+      ["programme_id", "topic", "session_date", "start_time", "venue", "course_lead", "objectives", "main_topic", "key_skill", "background", "rationale"].forEach(k => (W[k] = wizardField(k)));
       const on = v.querySelector("[name=g_on]");
       if (on) W.groups = on.value ? { ...(W.groups || {}), n: Math.max(2, Math.min(12, +v.querySelector("[name=g_n]").value || 4)), method: v.querySelector("[name=g_m]").value, names: W.groups?.names || [] } : null;
     }
@@ -490,7 +512,7 @@
   }
   const wizRow = () => ({ id: W.id, programme_id: W.programme_id, topic: W.topic, session_date: W.session_date || null, start_time: W.start_time, venue: W.venue, course_lead: W.course_lead,
     objectives: W.objectives, main_topic: W.main_topic, key_skill: W.key_skill, pre_test: W.pre_test, post_test: W.post_test, tools: [...W.tools],
-    flow: W.flow, evaluation: W.evaluation, files: W.files, slide_count: W.slide_count, ...(W.groups !== undefined ? { groups: W.groups } : {}) });
+    flow: W.flow, evaluation: W.evaluation, files: W.files, slide_count: W.slide_count, ...(W.groups !== undefined ? { groups: W.groups } : {}), ...((W.background || W.rationale || W.hadBg) ? { background: W.background || "", rationale: W.rationale || "" } : {}) });
   function wizStatus(t, ok) { const el = $("wSaved"); if (el) { el.textContent = t; el.classList.toggle("ok", !!ok); } }
   // Save to the server as a draft: new sessions as soon as they have a programme and topic; drafts on every change.
   async function wizSaveServer() {
@@ -563,6 +585,8 @@
         <label class="fld">Start time<input type="time" name="start_time" value="${esc(W.start_time)}"></label>
         <label class="fld">Course lead<input name="course_lead" value="${esc(W.course_lead)}"></label>
         <label class="fld">Venue<input name="venue" value="${esc(W.venue)}" placeholder="e.g. PSSDC Hall B"></label>
+        <label class="fld full">Background <span class="hint" style="display:inline">(optional, for the session report)</span><span class="hint">The context: who asked for this training, the situation it responds to.</span><textarea name="background" rows="3">${esc(W.background || "")}</textarea></label>
+        <label class="fld full">Rationale <span class="hint" style="display:inline">(optional, for the session report)</span><span class="hint">Why this session matters now and what it should change at work.</span><textarea name="rationale" rows="3">${esc(W.rationale || "")}</textarea></label>
         <label class="fld full">Learning objectives<span class="hint">One per line. By the end of the session, participants will be able to…</span><textarea name="objectives" rows="4">${esc(W.objectives)}</textarea></label>
         <label class="fld">Main topic, for the evaluation<span class="hint">“My knowledge of …”</span><input name="main_topic" value="${esc(W.main_topic)}" placeholder="e.g. using AI for routine office tasks"></label>
         <label class="fld">Key skill, for the evaluation<span class="hint">“I can now …”</span><input name="key_skill" value="${esc(W.key_skill)}" placeholder="e.g. write a clear prompt that gets a usable draft"></label>
@@ -836,7 +860,7 @@
     if (sessTab === "learning") drawLearning(s);
     if (sessTab === "particip") drawParticipation(s);
     if (sessTab === "evaluation") drawEvaluation(s);
-    if (sessTab === "report") TSR.sessionData(sb, s).then(d => { const b = $("repBox"); if (b) b.innerHTML = TSR.session(d, p); });
+    if (sessTab === "report") TSR.sessionData(sb, s).then(d => { const b = $("repBox"); if (b) b.innerHTML = TSR.session(d, p, profile); });
     if (sessTab === "certs" && p.id) TSCU.tab($("certBox"), { sb, profile, toast, errText, programme: p, sessions, session: s, save: saveProgramme(p.id), notify: () => notifyCerts(p.id) });
     if (sessTab === "details") fillThumbs($("view"));
     $("endRun")?.addEventListener("click", () => {
@@ -1942,7 +1966,12 @@
         <label class="fld">Full name<span class="hint">As it should appear on certificates you sign.</span><input name="n" value="${esc(profile.full_name)}"></label>
         <label class="fld">Phone<input name="ph" value="${esc(profile.phone)}"></label>
         <label class="fld">Where you train<input name="w" value="${esc(profile.where_train)}"></label>
-        <div class="row"><button class="btn" type="submit">Save</button><span class="err" id="meErr" role="status"></span></div></form>
+        <div class="row"><button class="btn" type="submit">Save</button><span class="err" id="meErr" role="status"></span></div>
+        <span class="lbl" style="margin-top:10px">For signing reports</span>
+        <label class="fld">Your title<span class="hint">Printed under your name, e.g. Head, Digital Learning Unit.</span><input name="jt" id="meTitle" value="${esc(profile.job_title || "")}"></label>
+        <div class="row ced-assets">${profile.signature ? `<span class="ced-img sig"><img src="${esc(profile.signature)}" alt="Your signature"></span>` : `<span class="small muted">No signature yet.</span>`}
+          <label class="btn ghost small">Upload<input type="file" id="meSigUp" accept="image/png,image/jpeg" hidden></label><button class="btn ghost small" type="button" id="meSigDraw">✍ Draw</button>${profile.signature ? `<button class="btn ghost small" type="button" id="meSigRm">Remove</button>` : ""}</div>
+        <span class="small muted" id="meSigMsg">A photo of your signature on white paper works; the paper is removed automatically.</span></form>
       <div style="display:flex;flex-direction:column;gap:14px"><span class="lbl">Plan</span>
         <p><b>${esc(profile.plan || "Approved")}</b><br><span class="muted">Ends: ${esc(exp)}</span><br><span class="muted">${esc(profile.email)}</span></p>
         <p class="note" id="aiUse">AI requests this month: checking…</p>
@@ -1958,6 +1987,22 @@
       if (error) return ($("meErr").textContent = errText(error, "Couldn't save."));
       profile = data; $("meName").textContent = profile.full_name; $("meErr").textContent = "Saved.";
     });
+    const saveSig = async (sig, title) => {
+      const { data, error } = await sb.rpc("update_my_signature", { p_job_title: title ?? $("meTitle").value, p_signature: sig ?? profile.signature ?? "" });
+      if (error) { $("meSigMsg").textContent = /function|schema cache/i.test(error.message || "") ? "Run supabase/schema-15-report.sql in Supabase first." : errText(error, "Couldn't save."); return false; }
+      profile = data; return true;
+    };
+    $("meTitle").addEventListener("change", async () => { if (await saveSig(null, $("meTitle").value)) $("meSigMsg").textContent = "Title saved ✓"; });
+    const sigAsset = async c => { if (!c) throw new Error("No signature found in that picture."); return TSCU.putAsset({ sb, profile }, "profile", c, "signature"); };
+    $("meSigUp").addEventListener("change", async e => {
+      const f = e.target.files[0]; if (!f) return; $("meSigMsg").textContent = "Uploading…";
+      try { const url = await sigAsset(TSCU.clearWhite(await TSCU.fileToCanvas(f, 1200))); if (await saveSig(url)) viewSettings(); } catch (er) { $("meSigMsg").textContent = er.message; }
+    });
+    $("meSigDraw").addEventListener("click", async () => {
+      const c = await TSCU.drawPad(); if (!c) return; $("meSigMsg").textContent = "Saving…";
+      try { const url = await sigAsset(c); if (await saveSig(url)) viewSettings(); } catch (er) { $("meSigMsg").textContent = er.message; }
+    });
+    $("meSigRm")?.addEventListener("click", async () => { if (await saveSig("")) viewSettings(); });
     $("pwForm").addEventListener("submit", async e => {
       e.preventDefault(); const pw = e.target.pw.value;
       if (pw.length < 8) return ($("pwErr").textContent = "Use at least 8 characters.");
