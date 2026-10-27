@@ -9,8 +9,8 @@ window.TSGR = (() => {
   const METHODS = [
     ["random", "Random", "Shuffled at random"],
     ["sex", "Mix by sex", "Each group gets a fair share of men and women"],
-    ["mda_mix", "Mix by MDA", "People from the same MDA are spread across groups"],
-    ["mda_same", "Same MDA together", "People from the same MDA sit together"],
+    ["mda_mix", "Mix by organisation/MDA", "People from the same organisation/MDA are spread across groups"],
+    ["mda_same", "Same organisation/MDA together", "People from the same organisation/MDA sit together"],
     ["choose", "Participants choose", "Phones show the groups; each person picks one"]
   ];
   const color = k => (COLORS[(+k - 1) % 12] || ["", "#5B6170"])[1];
