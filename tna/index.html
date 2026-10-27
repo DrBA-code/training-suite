@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#FFFFFF">
+<title>Training needs survey · Training Suite</title>
+<link rel="icon" href="../assets/icon-64.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body{background:#F6F7F4}
+  .v{max-width:680px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top,0px)) 16px 120px;display:flex;flex-direction:column;gap:16px}
+  .vtop{display:flex;align-items:center;gap:10px;font-weight:800}
+  .vcard{background:#fff;border-radius:20px;padding:20px;box-shadow:0 1px 2px rgba(16,24,40,.06),0 10px 30px rgba(16,24,40,.06);display:flex;flex-direction:column;gap:12px}
+  .vcard h1{font-size:clamp(26px,6.5vw,34px);font-weight:800;line-height:1.1}
+  .vcard h2{font-size:20px}
+  .scale{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+  .scale button{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:8px 2px;font:inherit;font-weight:800;font-size:17px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--ink);min-height:54px}
+  .scale button small{font-size:10.5px;font-weight:600;color:var(--muted);line-height:1.15;text-align:center}
+  .scale button[aria-pressed="true"]{color:#fff;border-color:transparent}
+  .scale.imp button[aria-pressed="true"]{background:#1F5FBF}.scale.imp button[aria-pressed="true"] small{color:#E6EEFB}
+  .scale.abl button[aria-pressed="true"]{background:#0F8A5F}.scale.abl button[aria-pressed="true"] small{color:#E2F5EC}
+  .q{font-weight:700;font-size:14px;margin-top:4px}
+  .area{border-left:5px solid var(--line);transition:border-color .2s}
+  .area.done{border-left-color:#0F8A5F}
+  .area .cat{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .tprog{position:sticky;top:0;z-index:5;background:#F6F7F4;padding:8px 0}
+  .tprog i{display:block;height:8px;border-radius:9px;background:#E3E6DF;overflow:hidden}.tprog em{display:block;height:100%;background:linear-gradient(90deg,#1F5FBF,#0F8A5F);width:0;transition:width .3s}
+  .tprog span{font-size:13px;color:var(--muted);font-weight:600}
+  .sendbar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;gap:10px;z-index:6}
+  .sendbar .btn{min-width:220px}
+  .big{font-size:56px;line-height:1}
+  .fld input,.fld select,.fld textarea{width:100%}
+</style>
+</head>
+<body>
+<main class="v" id="app" aria-live="polite"><div class="vtop"><img src="../assets/logo.png" alt="" width="30" height="32"> Training Suite</div><div class="vcard"><p class="muted">Loading your survey…</p></div></main>
+<script src="../config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="tna.js"></script>
+</body>
+</html>

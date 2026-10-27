@@ -185,7 +185,7 @@
     $("meRole").textContent = (profile.role === "programme_lead" ? "Programme Lead" : "Course Lead") + (profile.plan ? " · " + profile.plan : "");
     document.querySelectorAll("#mainNav a").forEach(a => a.setAttribute("aria-current", a.dataset.nav === r || (r === "session" && a.dataset.nav === "sessions") || (r === "people" && a.dataset.nav === "programmes") || (r === "report" && a.dataset.nav === "reports") ? "page" : "false"));
     if (!loaded) await loadData();
-    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), people: () => viewPeople(arg), present: () => viewPresent(arg), library: viewLibrary, reports: viewReports, report: () => viewReport(arg, arg2), settings: viewSettings };
+    const V = { dashboard: viewDashboard, programmes: viewProgrammes, sessions: viewSessions, new: () => viewWizard(null), edit: () => viewWizard(arg), session: () => viewSession(arg), people: () => viewPeople(arg), present: () => viewPresent(arg), library: viewLibrary, needs: () => viewNeeds(arg, arg2), reports: viewReports, report: () => viewReport(arg, arg2), settings: viewSettings };
     (V[r] || viewDashboard)();
     $("view").focus({ preventScroll: true }); scrollTo({ top: 0 });
   }
@@ -278,6 +278,13 @@
   };
   const LIBTABS = [["all", "Everything"], ["questions", "Questions"], ["case", "Case studies"], ["prompts", "Polls and prompts"], ["evaluation", "Evaluation forms"]];
   const libTab = k => k === "evaluation" ? "evaluation" : k === "case" ? "case" : ["quiz", "test", "buzz", "battle", "short", "order", "match", "spot"].includes(k) ? "questions" : "prompts";
+  // ---------- needs assessment (needs.js) ----------
+  function viewNeeds(id, tab) {
+    if (!window.TSN) return V(`<p class="muted">Needs assessment didn't load. Refresh the page.</p>`);
+    const ctx = { sb, profile, toast, errText, V, head, progs: () => progs };
+    return id ? TSN.page(ctx, id, tab) : TSN.list(ctx);
+  }
+
   let libView = "all", libQ = "", libOpen = null;
   async function viewLibrary() {
     V(head("Library", "Your Library", "") + `<p class="muted" style="margin-top:-14px;max-width:72ch">Question sets, case studies and evaluation forms you've kept for reuse. Add to it with <b>Save to Library</b> when writing questions or editing an evaluation; use it with <b>📚 Add from Library</b>.</p><div id="libBox"><p class="muted">Loading…</p></div>`);
