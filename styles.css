@@ -920,7 +920,11 @@ table.t tbody tr:last-child td{border-bottom:0}
   .rks{grid-template-columns:repeat(5,minmax(0,1fr))}.rgrid{grid-template-columns:1fr 1fr}
   .rk,.rb i,.rb em{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .rbreak{break-before:page}
+  .rt tr{break-inside:avoid}.rt thead{display:table-header-group}
   .rpt section{break-inside:avoid}
+  .rpt section.rsum,.rpt section.rwide{break-inside:auto}
+  .rsumtext p{orphans:3;widows:3;break-inside:avoid-page}
+  .rsign{break-inside:avoid;break-before:avoid}
   body.reporting .view>*:not(#rBox){display:none!important}
 }
 

@@ -156,8 +156,29 @@ window.TSR = (() => {
       const tp = held.filter(d => d.timePct != null); if (tp.length) t += ` Participants were present for ${Math.round(avg(tp.map(d => d.timePct)))}% of session time on average.`;
       out.push(t);
     } else out.push("No participants have checked in to this programme's sessions yet.");
+    // session by session, one short paragraph each
+    if (list.length > 1) {
+      out.push(`The sessions are summarised below.`);
+      list.forEach((d, i) => {
+        const s = d.s, bits = [];
+        if (!d.attendees) { out.push(`Session ${i + 1}, “${s.topic}”${s.session_date ? ` (${dmy(s.session_date)})` : ""}${s.status === "completed" ? ", had no participants checked in." : ", has not been held yet."}`); return; }
+        let t = `Session ${i + 1}, “${s.topic}”${s.session_date ? `, held on ${dmy(s.session_date)}` : ""}${d.startAt && d.endAt && d.endAt > d.startAt ? ` from ${tm(d.startAt)} to ${tm(d.endAt)}` : ""}${s.course_lead ? ` and facilitated by ${s.course_lead}` : ""}, had ${plural(d.attendees, "participant")}`;
+        if (d.timePct != null) bits.push(`present for ${Math.round(d.timePct)}% of the session on average`);
+        t += bits.length ? `, ${bits.join(", ")}.` : ".";
+        const so = String(s.objectives || "").split("\n").map(x => cleanEnd(x.replace(/^\s*(\d+[.)]|[-•*])\s*/, ""))).filter(Boolean);
+        if (so.length) t += ` It aimed to enable participants to ${andList(so.slice(0, 3).map(lower1))}${so.length > 3 ? `, among other objectives` : ""}.`;
+        const res = [];
+        if (d.runs) res.push(`${Plural(d.runs, "activity", "activities")} ${d.runs === 1 ? "was" : "were"} run (${Math.round(d.partAvg || 0)}% participation)`);
+        if (d.pre != null && d.post != null) res.push(`test scores moved from ${Math.round(d.pre)}% to ${Math.round(d.post)}% (learning achievement ${Math.round(d.achAvg ?? 0)}%)`);
+        if (d.eval?.overall != null) res.push(`participants rated it ${d.eval.overall.toFixed(1)} out of 5`);
+        if (res.length) t += ` ${res[0].charAt(0).toUpperCase() + res[0].slice(1)}${res.length > 1 ? (res.length > 2 ? ", " + res.slice(1, -1).join(", ") + "," : "") + " and " + res[res.length - 1] : ""}.`;
+        const imp = d.eval?.texts?.find(x => x.id === "improve")?.answers?.[0]?.t;
+        if (imp) t += ` A suggestion for improvement was “${cleanEnd(imp)}”.`;
+        out.push(t);
+      });
+    }
     const eng = [], runs = held.reduce((a, d) => a + (d.runs || 0), 0), parts = held.filter(d => d.partAvg != null && d.runs);
-    if (runs) eng.push(`${Plural(runs, "interactive activity", "interactive activities")} ${runs === 1 ? "was" : "were"} run across the programme, with an average participation rate of ${Math.round(avg(parts.map(d => d.partAvg)) || 0)}%.`);
+    if (runs) eng.push(`${list.length > 1 ? "Across the programme, " + plural(runs, "interactive activity", "interactive activities") : Plural(runs, "interactive activity", "interactive activities")} ${runs === 1 ? "was" : "were"} run${list.length > 1 ? "" : " across the programme"}, with an average participation rate of ${Math.round(avg(parts.map(d => d.partAvg)) || 0)}%.`);
     const tested = held.filter(d => d.achAvg != null);
     if (tested.length) {
       const best = tested.slice().sort((a, b) => b.achAvg - a.achAvg)[0];
@@ -197,7 +218,7 @@ window.TSR = (() => {
         ${kpi("Learning achievement", pct(avg(list.filter(d => d.achAvg != null).map(d => d.achAvg))), "Average across sessions", "#6D3FC0")}
         ${kpi("Participant rating", rated.length ? stars(avg(rated.map(d => d.eval.overall))) : "–", issued != null && p.certificates ? `${issued} certificate${issued === 1 ? "" : "s"} issued` : "", "#B8860B")}</div>
       <section class="rwide"><h2>Sessions</h2><table class="rt"><thead><tr><th>Date</th><th>Session</th><th>Checked in</th><th>Time in room</th><th>Participation</th><th>Pre → post</th><th>Achievement</th><th>Rating</th></tr></thead><tbody>
-        ${list.map(d => `<tr><td>${esc(dmy(d.s.session_date) || "–")}</td><td><b>${esc(d.s.topic)}</b></td><td>${d.attendees}</td><td>${d.timePct != null ? pct(d.timePct) : hm(d.spent)}</td><td>${pct(d.partAvg)}</td><td>${d.pre != null || d.post != null ? `${pct(d.pre)} → ${pct(d.post)}` : "–"}</td><td>${pct(d.achAvg)}</td><td>${d.eval?.overall != null ? stars(d.eval.overall) : "–"}</td></tr>`).join("")}</tbody></table></section>
+        ${list.map(d => `<tr><td>${esc(dmy(d.s.session_date) || "–")}</td><td><b>${esc(d.s.topic)}</b></td><td>${d.attendees}</td><td>${d.timePct != null ? pct(d.timePct) : hm(d.spent)}</td><td>${d.runs ? pct(d.partAvg) : "–"}</td><td>${d.pre != null || d.post != null ? `${pct(d.pre)} → ${pct(d.post)}` : "–"}</td><td>${pct(d.achAvg)}</td><td>${d.eval?.overall != null ? stars(d.eval.overall) : "–"}</td></tr>`).join("")}</tbody></table></section>
       ${people && people.length ? `<section class="rwide${people.length > 14 ? " rbreak" : ""}"><h2>Participants</h2><table class="rt rsm"><thead><tr><th>Name</th><th>Organisation</th>${list.map((d, i) => `<th title="${esc(d.s.topic)}">S${i + 1}</th>`).join("")}<th>Post-test</th>${p.certificates ? "<th>Certificate</th>" : ""}</tr></thead><tbody>
         ${people.map(x => { const per = Object.fromEntries((x.per || []).map(y => [y.session, y])); return `<tr><td><b>${esc(fullName(x))}</b></td><td>${esc(x.organisation)}</td>${list.map(d => { const y = per[d.s.id]; return `<td class="${y?.here ? "rok" : "rno"}">${y?.here ? y.pct + "%" : "–"}</td>`; }).join("")}<td>${x.post == null ? "–" : x.post + "%"}</td>${p.certificates ? `<td>${x.cert?.status === "valid" ? esc(x.cert.number) : x.qualifies ? "Qualifies" : "Not yet"}</td>` : ""}</tr>`; }).join("")}</tbody></table>
         <p class="rnote">S1, S2… are the sessions in the table above; each cell shows the share of that session the person was in the room.</p></section>` : ""}
