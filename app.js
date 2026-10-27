@@ -1964,7 +1964,7 @@
   $("stage").addEventListener("mousemove", poke);
   addEventListener("resize", () => { if (P && P.items[P.i]?.t === "slide") { P.redraw = true; draw(); } });
   // transitions between slides: none, fade, slide, zoom or morph (T, or the ✨ button)
-  const TRANS = [["morph", "Morph"], ["zoom", "Zoom"], ["fade", "Fade"], ["slide", "Slide"], ["none", "None"]];
+  const TRANS = [["morph", "Special"], ["zoom", "Zoom"], ["fade", "Fade"], ["slide", "Slide"], ["none", "None"]];
   function trans() { try { return localStorage.getItem("ts_trans") || "morph"; } catch { return "morph"; } }
   function showTrans() { $("stTrans").textContent = "✨ " + (TRANS.find(x => x[0] === trans()) || TRANS[0])[1]; }
   function nextTrans() { const i = TRANS.findIndex(x => x[0] === trans()); try { localStorage.setItem("ts_trans", TRANS[(i + 1) % TRANS.length][0]); } catch {} showTrans(); stFlash("✨ " + TRANS[(i + 1) % TRANS.length][1]); }
