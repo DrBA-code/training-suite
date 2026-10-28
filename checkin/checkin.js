@@ -229,8 +229,30 @@
     const { data, error } = await sb.rpc("my_focus", { p_code: code, p_token: me.token });
     if (error || !data) { FOC = null; drawFocus(); return; }
     const was = !!FOC; FOC = data.focus && data.focus.on && !ended ? data.focus : null; focOk = !!data.accepted;
-    if (!FOC) { resUntil = 0; focNote = ""; }
+    if (!FOC) { resUntil = 0; focNote = ""; store.set(AWAYK(), null); }
+    else if (!resUntil) { const r = store.get(RESK()); if (r && r > Date.now()) { resUntil = r; tickRes(); } }
     drawFocus(fresh && !was && FOC); focusWatch();
+    if (FOC && focOk && !document.hidden) sendBack();   // came back to a reloaded page: finish the away that was started
+  }
+  const AWAYK = () => "ts_focaway_" + code, RESK = () => "ts_focres_" + code;
+  function tickRes() { clearInterval(resTimer); resTimer = setInterval(() => { if (Date.now() > resUntil) { clearInterval(resTimer); resUntil = 0; } drawFocus(); }, 1000); }
+  // Tell the server (and the live screen) that this person is back. Kept on the phone and retried until it gets through,
+  // so a page the phone reloaded, or a network that is still waking up, doesn't leave them "away" on the screen.
+  let backBusy = false;
+  async function sendBack() {
+    let pend = store.get(AWAYK()); if (!pend || backBusy || !me || document.hidden) return;
+    if (pend.open) {   // the page was reloaded while away: work out the time from what was kept
+      const now = Date.now(), total = Math.round((now - pend.at) / 1000), inRes = Math.max(0, Math.round((Math.min(now, pend.resUntil || 0) - pend.at) / 1000));
+      pend = { secs: Math.max(0, total - inRes), res: inRes }; store.set(AWAYK(), pend); awayAt = 0;
+      if (pend.secs > (FOC?.grace || 30)) { focNote = `You were away from Training Suite for ${nice(pend.secs)}. This has been noted and your facilitator has been told.`; drawFocus(); }
+    }
+    backBusy = true;
+    for (const wait of [0, 1500, 4000, 9000]) {
+      if (wait) await new Promise(r => setTimeout(r, wait));
+      const { error } = await sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "back", p_secs: pend.secs, p_research: pend.res });
+      if (!error) { store.set(AWAYK(), null); channel?.send({ type: "broadcast", event: "focus_back", payload: { participant: me.participant, name: fullName(me.title, me.name), secs: pend.secs, research: pend.res } }); break; }
+    }
+    backBusy = false;
   }
   function drawFocus(alert) {
     const bar = $("focBar"), ask = $("focAsk");
@@ -259,14 +281,22 @@
       ${FOC.research && on ? (left ? `<span class="res">🔎 Research window: ${mmss(left)} left. Come back here when you're done.</span>`
         : `<div class="row"><input id="focQ" placeholder="Look something up…" enterkeyhint="search" aria-label="Search the web"><button class="btn ghost small" type="button" id="focGo">🔎 Research (${FOC.research} min)</button></div>`) : ""}`;
     bar.hidden = false;
-    const go = async () => {
-      const q = ($("focQ")?.value || "").trim();
-      resUntil = Date.now() + FOC.research * 60000;
+    const go = () => {
+      const q = ($("focQ")?.value || "").trim(), ios = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      $("focCard").innerHTML = `<span class="lbl" style="color:#1F5FBF">🔎 Research window</span><h2 id="focT">${FOC.research} minutes to look it up</h2>
+        <p>Search opens in a new tab. These ${FOC.research} minutes don't count as being away.</p>
+        <div class="howback"><b>When you're done, come back here:</b>${ios ? `<span>Tap the <b>tabs</b> button (two squares) and choose <b>Training Suite</b>.</span>` : `<span>Tap your phone's <b>Back</b> button (or swipe back) to close the search.</span>`}<span class="small muted">After ${FOC.research} minutes, time away is counted again.</span></div>
+        <div class="row"><button class="btn red" type="button" id="resOpen">Open the search</button><button class="btn ghost" type="button" id="resNo">Cancel</button></div>`;
+      $("focAsk").hidden = false;
+      $("resNo").onclick = () => ($("focAsk").hidden = true);
+      $("resOpen").onclick = () => { $("focAsk").hidden = true; openRes(q); };
+    };
+    const openRes = q => {
+      resUntil = Date.now() + FOC.research * 60000; store.set(RESK(), resUntil);
       sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "research" });
       channel?.send({ type: "broadcast", event: "focus_research", payload: { participant: me.participant, name: fullName(me.title, me.name), minutes: FOC.research } });
       window.open(q ? "https://www.google.com/search?q=" + encodeURIComponent(q) : "https://www.google.com/", "_blank", "noopener");
-      clearInterval(resTimer); resTimer = setInterval(() => { if (Date.now() > resUntil) { clearInterval(resTimer); resUntil = 0; } drawFocus(); }, 1000);
-      drawFocus();
+      tickRes(); drawFocus();
     };
     $("focGo")?.addEventListener("click", go);
     $("focQ")?.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
@@ -277,18 +307,22 @@
     const now = Date.now();
     if (hidden) {
       if (awayAt || !watching()) return; awayAt = now;
+      store.set(AWAYK(), { at: now, resUntil, secs: 0, res: 0, open: true });
       sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "out" });
       channel?.send({ type: "broadcast", event: "focus_out", payload: { participant: me.participant, name: fullName(me.title, me.name), research: now < resUntil, until: resUntil, grace: FOC.grace } });
-    } else if (awayAt) {
+    } else {
+      const open = store.get(AWAYK());
+      if (!awayAt && open?.open) { awayAt = open.at; resUntil = Math.max(resUntil, open.resUntil || 0); }   // the phone reloaded the page while away
+      if (!awayAt) { sendBack(); return; }
       const total = Math.round((now - awayAt) / 1000), inRes = Math.max(0, Math.round((Math.min(now, resUntil) - awayAt) / 1000)), secs = Math.max(0, total - inRes);
       awayAt = 0;
-      sb.rpc("focus_event", { p_code: code, p_token: me.token, p_kind: "back", p_secs: secs, p_research: inRes });
-      channel?.send({ type: "broadcast", event: "focus_back", payload: { participant: me.participant, name: fullName(me.title, me.name), secs, research: inRes } });
+      store.set(AWAYK(), { secs, res: inRes }); sendBack();
       if (secs > FOC.grace) { focNote = `You were away from Training Suite for ${nice(secs)}. This has been noted and your facilitator has been told.`; buzz([80, 40, 80]); }
       focusWatch();
     }
   }
-  document.addEventListener("visibilitychange", () => { focusAway(document.hidden); if (!document.hidden) focusWatch(); });
+  document.addEventListener("visibilitychange", () => { focusAway(document.hidden); if (!document.hidden) { focusWatch(); loadFocus(); } });
+  addEventListener("online", () => sendBack());
   addEventListener("pagehide", () => focusAway(true));
 
   // ---------- my group ----------

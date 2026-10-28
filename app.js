@@ -1308,6 +1308,7 @@
   // ---------- LIVE: one flow of welcome, slides and activities ----------
   let P = null;
   const CARD = { pretest: ["Pre-test", "Where everyone starts"], posttest: ["Post-test", "What was learned"], evaluation: ["Session evaluation", "How it landed"], certificates: ["Certificates", "For the programme"], train: ["Training", "No slides uploaded for this session"] };
+  function drawStrip() { $("stStrip").innerHTML = P.items.map((x, n) => `<button type="button" data-go="${n}" class="sti ${x.t}${x.quick ? " quick" : ""}" title="${esc(x.label)}">${x.t === "slide" ? x.n : esc(x.t === "welcome" ? "Welcome" : x.label)}</button>`).join(""); }
   function buildFlow(s) {
     const it = [{ t: "welcome", label: "Check-in and welcome" }];
     if (s.pre_test) it.push({ t: "card", key: "pretest", label: "Pre-test" });
@@ -1334,7 +1335,7 @@
     P = { s, items: buildFlow(s), i: 0, pdf: null, roll: [], known: null, queue: [], showing: false, phones: 0, cache: {} };
     $("shell").hidden = true; $("stage").hidden = false; document.body.style.overflow = "hidden";
     $("stTitle").textContent = s.topic;
-    $("stStrip").innerHTML = P.items.map((x, n) => `<button type="button" data-go="${n}" class="sti ${x.t}" title="${esc(x.label)}">${x.t === "slide" ? x.n : esc(x.t === "welcome" ? "Welcome" : x.label)}</button>`).join("");
+    drawStrip();
     $("stStrip").onclick = e => { const b = e.target.closest("[data-go]"); if (b) goItem(+b.dataset.go); };
     const slides = (s.files || []).find(f => f.kind === "slides");
     if (slides) loadPdf(slides.path);
@@ -1346,7 +1347,7 @@
     P.channel.on("broadcast", { event: "focus_out" }, ({ payload }) => focusOut(payload));
     P.channel.on("broadcast", { event: "focus_back" }, ({ payload }) => focusBack(payload));
     P.channel.on("broadcast", { event: "focus_ok" }, () => loadFocus());
-    P.channel.on("broadcast", { event: "focus_research" }, ({ payload }) => payload && focusNote(`🔎 ${payload.name} started a ${payload.minutes}-minute research window`, "#1F5FBF"));
+    P.channel.on("broadcast", { event: "focus_research" }, ({ payload }) => payload && names() && focusNote(`🔎 ${payload.name} started a ${payload.minutes}-minute research window`, "#1F5FBF"));
     P.channel.subscribe(st => { if (st === "SUBSCRIBED") sayNow(); });
     P.nowTimer = setInterval(sayNow, 10000);
     P.remoteTimer = setInterval(() => remoteState(), 3000);
@@ -1356,6 +1357,7 @@
     await refreshRoll(false);
     loadFocus(true);
     P.focusTimer = setInterval(drawAlerts, 1000);
+    P.fxPoll = setInterval(() => { if (P?.focus && !document.hidden) loadFocus(); }, 5000);
     $("stage").style.setProperty("--dockh", $("stDock").offsetHeight + "px");
     goItem(0);
     if (gestPref()) gestures(true);
@@ -1366,7 +1368,7 @@
     if (!P) return;
     stopRun(); closeWheel(); window.TSG?.stop(); $("stCam").hidden = true; $("stGest").setAttribute("aria-pressed", "false"); $("stBlank").hidden = true; $("stRemote").hidden = true;
     if (P.remote) sb.removeChannel ? sb.removeChannel(P.remote) : P.remote.unsubscribe?.();
-    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer); clearInterval(P.focusTimer); $("stAlerts").innerHTML = ""; $("stFocus").hidden = true;
+    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer); clearInterval(P.focusTimer); clearInterval(P.fxPoll); closeQuickPoll(); $("stAlerts").innerHTML = ""; $("stFocus").hidden = true;
     if (P.channel) sb.removeChannel ? sb.removeChannel(P.channel) : P.channel.unsubscribe?.();
     P = null;
   }
@@ -1476,7 +1478,7 @@
   const slotOfItem = it => it.t === "tool" && SLOTS.includes(it.tool) ? it.tool : it.t === "card" && (it.key === "pretest" || it.key === "posttest") ? "test" : null;
   function drawActivity(it, slot) {
     if (P.run) return;
-    const m = $("stMain"), a = P.acts.find(x => x.slot === slot), K = TSA.KINDS[slot], ok = a && a.data?.steps?.length;
+    const m = $("stMain"), a = P.acts.find(x => x.slot === (it.slot || slot)), K = TSA.KINDS[slot], ok = a && a.data?.steps?.length;
     const name = slot === "test" ? (it.key === "pretest" ? "Pre-test" : "Post-test") : (a?.title || K.name);
     const line = slot === "test" ? (it.key === "pretest" ? "Where everyone starts. Answer on your phone." : "The same questions again. You'll see your learning achievement.") : (K.say || K.line);
     const n = ok ? a.data.steps.length : 0;
@@ -1811,23 +1813,44 @@
     const { data, error } = await sb.rpc("session_focus", { p_session: P.s.id });
     if (error || !data) { P.fx = null; return; }
     P.fx = data; P.focus = data.focus && data.focus.on ? data.focus : null; P.away = P.away || new Map();
-    if (seed && P.focus) (data.rows || []).forEach(r => { if (r.out_at && r.in_room) P.away.set(r.participant, { name: r.name, since: +new Date(r.out_at), research: false, until: 0 }); });
-    if (!P.focus) P.away.clear();
-    const waiting = P.focus ? (data.rows || []).filter(r => r.in_room && !r.accepted).length : 0;
-    $("stFocusN").hidden = !waiting; $("stFocusN").textContent = waiting; $("stFocusBtn").classList.toggle("on", !!P.focus);
-    $("stFocusBtn").title = P.focus ? `Focus mode is on${waiting ? ` · ${waiting} not accepted yet` : ""} (O)` : "Focus mode (O)";
+    // The database is the record: whoever it shows as out is away (or researching), everyone else is here.
+    // This catches anything the live channel missed, such as a phone whose connection was asleep when it came back.
+    const skew = data.now ? Date.now() - +new Date(data.now) : 0, rows = (data.rows || []).filter(r => r.in_room);
+    if (P.focus) {
+      const out = new Set();
+      rows.forEach(r => { if (!r.out_at) return; out.add(r.participant); const since = +new Date(r.out_at) + skew, until = r.res_until ? +new Date(r.res_until) + skew : 0, had = P.away.get(r.participant);
+        P.away.set(r.participant, { name: r.name, since: had ? Math.min(had.since, since) : since, research: !!until && until > since - 1000, until: Math.max(until, had?.until || 0) }); });
+      [...P.away.keys()].forEach(k => { if (!out.has(k) && !(P.awayFresh?.get(k) > Date.now() - 4000)) P.away.delete(k); });
+    } else P.away.clear();
+    focusBadge(rows);
     if (!$("stFocus").hidden) drawFocusPanel();
     drawAlerts();
   }
+  // The Focus button shows how many people are off the page right now: red if anyone is away, blue if they're only researching.
+  function focusBadge(rows) {
+    if (!P) return; const now = Date.now(), list = P.focus ? [...(P.away || new Map()).values()] : [], res = list.filter(a => a.research && now < a.until).length, away = list.length - res;
+    const waiting = P.focus ? (rows || (P.fx?.rows || []).filter(r => r.in_room)).filter(r => !r.accepted).length : 0, n = list.length, el = $("stFocusN");
+    el.hidden = !n; el.textContent = n; el.classList.toggle("res", !!n && !away);
+    // a small chip that stays visible when the dock fades or the screen is full: just the number, no names
+    let chip = $("stFocusChip");
+    if (!chip) { chip = document.createElement("button"); chip.type = "button"; chip.id = "stFocusChip"; chip.className = "st-fchip"; chip.onclick = openFocus; $("stAlerts").appendChild(chip); }
+    chip.hidden = !n || names(); chip.classList.toggle("res", !!n && !away);
+    chip.innerHTML = `🎯 <b>${n}</b> ${away ? "away" : "researching"}`; chip.title = "Open Focus mode";
+    $("stFocusBtn").classList.toggle("on", !!P.focus);
+    $("stFocusBtn").title = P.focus ? `Focus mode is on${n ? ` · ${away ? away + " away" : ""}${away && res ? ", " : ""}${res ? res + " researching" : ""}` : " · everyone is here"}${waiting ? ` · ${waiting} not accepted yet` : ""} (O)` : "Focus mode (O)";
+  }
   function focusOut(p) {
     if (!P?.focus || !p) return; P.away = P.away || new Map();
-    P.away.set(p.participant, { name: p.name, since: Date.now(), research: !!p.research, until: p.until || 0 }); drawAlerts();
+    P.away.set(p.participant, { name: p.name, since: Date.now(), research: !!p.research, until: p.until || 0 });
+    (P.awayFresh = P.awayFresh || new Map()).set(p.participant, Date.now()); focusBadge(); drawAlerts();
   }
   function focusBack(p) {
     if (!P || !p) return; const a = P.away?.get(p.participant); P.away?.delete(p.participant);
-    if (P.focus && p.secs > (P.focus.grace || 20)) focusNote(`${p.name} is back · away ${p.secs < 60 ? p.secs + " s" : mmss(p.secs)}`, "#0F8A5F");
-    drawAlerts(); if (a && !$("stFocus").hidden) loadFocus();
+    P.awayFresh?.delete(p.participant);
+    if (P.focus && names() && p.secs > (P.focus.grace || 20)) focusNote(`${p.name} is back · away ${p.secs < 60 ? p.secs + " s" : mmss(p.secs)}`, "#0F8A5F");
+    focusBadge(); drawAlerts(); if (a && !$("stFocus").hidden) loadFocus();
   }
+  const names = () => P?.focus?.show === "names";   // names and timers on the live screen, or just the count on the Focus button
   function focusNote(t, color) {
     const el = document.createElement("div"); el.className = "st-alert note"; el.style.setProperty("--ac", color || "#14161C"); el.textContent = t;
     $("stAlerts").appendChild(el); setTimeout(() => el.remove(), 6000);
@@ -1837,6 +1860,8 @@
     if (!P) return; const box = $("stAlerts"), now = Date.now(), grace = (P.focus?.grace || 20) * 1000;
     box.querySelectorAll(".st-alert.away").forEach(e => e.remove());
     if (!P.focus || !P.away) return;
+    focusBadge();
+    if (!names()) return;
     const list = [...P.away.entries()].map(([id, a]) => {
       const counted = a.research && a.until > a.since ? Math.max(0, now - Math.max(a.since, a.until)) : now - a.since;
       return { id, ...a, counted, researching: a.research && now < a.until };
@@ -1850,7 +1875,7 @@
   }
   function drawFocusPanel() {
     const box = $("stFocus"), fx = P.fx; if (!fx) { box.innerHTML = `<div class="gform"><h2>Focus mode</h2><p>Focus mode isn't set up in the database yet: run supabase/schema-14-focus.sql in Supabase.</p><div class="row"><button type="button" class="key" data-fx>Close</button></div></div>`; box.querySelector("[data-fx]").onclick = () => (box.hidden = true); return; }
-    const saved = fx.focus || { on: false, scope: "activities", grace: 30, research: 3 }, f = { ...saved, ...(P.fxDraft || {}) }, rows = (fx.rows || []).filter(r => r.in_room), now = Date.now();
+    const saved = fx.focus || { on: false, scope: "activities", grace: 30, research: 3, show: "count" }, f = { ...saved, ...(P.fxDraft || {}) }, rows = (fx.rows || []).filter(r => r.in_room), now = Date.now();
     const status = r => { const a = P.away?.get(r.participant); if (!a) return `<span class="ok">Here</span>`; if (a.research && now < a.until) return `<span style="color:#1F5FBF">Researching</span>`; return `<b style="color:#D2391F">Away ${mmss((now - a.since) / 1000)}</b>`; };
     box.innerHTML = `<div class="gform"><div class="row" style="justify-content:space-between"><h2>🎯 Focus mode</h2><button type="button" class="x" data-fx aria-label="Close">×</button></div>
       ${!fx.allowed ? `<div class="note warn" style="color:#14161C">Focus mode is off for this programme. <button type="button" class="key next" id="fxAllow">Allow Focus mode for this programme</button></div>` : `
@@ -1858,19 +1883,20 @@
       <div class="gmeth" style="grid-template-columns:1fr 1fr">${[["activities", "During activities and tests", "Only while a question is open on phones. Between activities, phones are free."], ["session", "Whole session", "From now until you turn it off."]].map(([v, t, l]) => `<label class="gm"><input type="radio" name="fxScope" value="${v}" ${(f.scope || "activities") === v ? "checked" : ""}><b>${t}</b><span>${l}</span></label>`).join("")}</div>
       <div class="gsize"><label class="gopt">Grace period <select id="fxGrace" class="fxsel">${[10, 20, 30, 60, 120].map(v => `<option value="${v}" ${(f.grace || 30) === v ? "selected" : ""}>${v < 60 ? v + " seconds" : v / 60 + " minute" + (v > 60 ? "s" : "")}</option>`).join("")}</select></label>
         <label class="gopt">Research window <select id="fxRes" class="fxsel">${[0, 2, 3, 5, 10].map(v => `<option value="${v}" ${(f.research ?? 3) === v ? "selected" : ""}>${v ? v + " minutes" : "Off"}</option>`).join("")}</select></label></div>
+      <b style="font-size:15px">On the live screen</b><div class="gmeth" style="grid-template-columns:1fr 1fr">${[["count", "Just the number", "A badge on the Focus button counts who is away or researching. Names stay in this panel."], ["names", "Names and timers", "Each person who goes away appears on the screen with a timer."]].map(([v, t, l]) => `<label class="gm"><input type="radio" name="fxShow" value="${v}" ${(f.show || "count") === v ? "checked" : ""}><b>${t}</b><span>${l}</span></label>`).join("")}</div>
       <div class="row"><button type="button" class="key next big" id="fxToggle">${f.on ? "Turn Focus mode off" : "Turn Focus mode on"}</button>${f.on ? `<button type="button" class="key" id="fxSave">Save changes</button>` : ""}<span class="st-mono">${f.on ? `${rows.filter(r => r.accepted).length} of ${rows.length} accepted · ${P.away?.size || 0} away now` : ""}</span></div>
       ${rows.length ? `<div class="fxwrap"><table class="fxt"><thead><tr><th>Name</th><th>Accepted</th><th>Now</th><th>Times left</th><th>Time away</th><th>Research</th></tr></thead><tbody>
         ${rows.map(r => `<tr><td>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : ""}<b>${esc(r.name)}</b></td><td>${r.accepted ? "✓" : `<span style="color:#B8860B">Waiting</span>`}</td><td>${f.on && r.accepted ? status(r) : "–"}</td><td>${r.leaves || "–"}${r.short ? ` <small class="st-mono">(+${r.short} short)</small>` : ""}</td><td>${r.away ? mmss(r.away) : "–"}</td><td>${r.research || "–"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="st-mono">No one is checked in yet.</p>`}`}</div>`;
     box.querySelector("[data-fx]").onclick = () => (box.hidden = true);
-    const keep = () => { P.fxDraft = { scope: document.querySelector("[name=fxScope]:checked")?.value, grace: +$("fxGrace").value, research: +$("fxRes").value }; };
-    box.querySelectorAll("[name=fxScope],#fxGrace,#fxRes").forEach(el => el.addEventListener("change", keep));
+    const keep = () => { P.fxDraft = { scope: document.querySelector("[name=fxScope]:checked")?.value, grace: +$("fxGrace").value, research: +$("fxRes").value, show: document.querySelector("[name=fxShow]:checked")?.value }; };
+    box.querySelectorAll("[name=fxScope],[name=fxShow],#fxGrace,#fxRes").forEach(el => el.addEventListener("change", keep));
     $("fxAllow")?.addEventListener("click", async () => {
       const { error } = await sb.from("programmes").update({ focus_allowed: true }).eq("id", P.s.programme_id);
       if (error) return toast(errText(error, "Couldn't change the programme."));
       progs = progs.map(x => x.id === P.s.programme_id ? { ...x, focus_allowed: true } : x); loadFocus();
     });
     const save = async on => {
-      const cfg = { on, scope: document.querySelector("[name=fxScope]:checked")?.value || "activities", grace: +$("fxGrace").value, research: +$("fxRes").value };
+      const cfg = { on, scope: document.querySelector("[name=fxScope]:checked")?.value || "activities", grace: +$("fxGrace").value, research: +$("fxRes").value, show: document.querySelector("[name=fxShow]:checked")?.value || "count" };
       const { data, error } = await sb.rpc("set_focus", { p_session: P.s.id, p_focus: cfg });
       if (error) return toast(errText(error, "Couldn't change Focus mode."));
       P.fxDraft = null;
@@ -1889,6 +1915,69 @@
     clearInterval(P.fxPanelTimer); P.fxPanelTimer = setInterval(() => { if (!P || box.hidden) return clearInterval(P?.fxPanelTimer); if (!box.querySelector("select:focus")) drawFocusPanel(); }, 2000);
   }
   $("stFocusBtn").addEventListener("click", openFocus);
+
+  // ---------- quick poll, spoken or typed on the spot ----------
+  // Say the question, then "options", then the choices with "or" between them. It becomes a live poll straight away.
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const QWORD = /^(what|which|how|who|whom|whose|where|when|why|do|does|did|is|are|was|were|can|could|should|would|will|have|has|had|shall|may)\b/i;
+  const cap1 = t => t ? t[0].toUpperCase() + t.slice(1) : t;
+  function parsePoll(text) {
+    let t = String(text || "").replace(/\bquestion mark\b/gi, "?").replace(/\s+/g, " ").trim();
+    const m = t.match(/^(.*?)[\s,.:;?!]*\b(?:(?:and )?(?:the )?(?:options|choices|answers)(?: are)?|option (?:one|1|a))\b[\s:,.-]*(.*)$/i);
+    let q = (m ? m[1] : t).replace(/[\s,.:;]+$/, "").trim(), rest = m ? m[2] : "";
+    let opts = rest ? rest.split(/\s*(?:[,;]|\.(?=\s)|\bor\b|\bnext\b|\boption (?:two|three|four|five|six|[2-6]|[b-f])\b)\s*/i) : [];
+    opts = opts.map(o => o.replace(/^(?:and|or)\s+/i, "").replace(/[\s.?!,]+$/, "").trim()).filter(Boolean);
+    if (opts.length === 1 && / and /i.test(opts[0])) opts = opts[0].split(/\s+and\s+/i);
+    opts = [...new Set(opts.map(o => cap1(o).slice(0, 80)))].slice(0, 6);
+    q = cap1(q.replace(/^(?:poll|quick poll|question)[\s:,]+/i, "")).slice(0, 200);
+    if (q && !/[?.!]$/.test(q)) q += QWORD.test(q) ? "?" : "";
+    if (!opts.length && QWORD.test(q) && /^(do|does|did|is|are|was|were|can|could|should|would|will|have|has|had|shall|may)\b/i.test(q)) opts = ["Yes", "No", "Not sure"];
+    return { q, options: opts };
+  }
+  let qpRec = null;
+  function closeQuickPoll() { try { qpRec?.stop(); } catch {} qpRec = null; $("stPoll").hidden = true; $("stPollBtn").setAttribute("aria-pressed", "false"); }
+  function openQuickPoll() {
+    if (!P) return; const box = $("stPoll");
+    if (!box.hidden) return closeQuickPoll();
+    if (P.run) { stFlash("Finish the activity on screen first"); return; }
+    $("stage").style.setProperty("--gb", $("stage").classList.contains("fs") ? "0px" : $("stDock").offsetHeight + "px");
+    box.innerHTML = `<div class="gform"><div class="row" style="justify-content:space-between"><h2>🎙 Quick poll</h2><button type="button" class="x" id="qpX" aria-label="Close">×</button></div>
+      ${SR ? `<p class="st-mono">Tap the microphone and say the question, then <b>“options”</b>, then the choices with <b>“or”</b> between them. For example: “Which tool do you use most? Options: ChatGPT or Copilot or Gemini or none.” For a yes/no question, just say the question.</p>
+      <div class="qp-mic"><button type="button" class="key next big" id="qpMic">🎙 Tap and speak</button><span class="st-mono" id="qpHeard" aria-live="polite"></span></div>`
+      : `<p class="st-mono">Speaking a poll works in Chrome or Edge. Type it here instead.</p>`}
+      <label class="qp-f">Question<input id="qpQ" maxlength="200" placeholder="Type or speak the question" autocomplete="off"></label>
+      <div class="qp-opts">${Array.from({ length: 6 }, (_, i) => `<label class="qp-f"><span>Option ${i + 1}</span><input data-qo="${i}" maxlength="80" autocomplete="off"></label>`).join("")}</div>
+      <div class="row"><button type="button" class="key next big" id="qpGo">▶ Start the poll now</button><span class="st-mono" id="qpErr" role="alert"></span></div></div>`;
+    box.hidden = false; $("stPollBtn").setAttribute("aria-pressed", "true");
+    const fillIn = p => { $("qpQ").value = p.q; box.querySelectorAll("[data-qo]").forEach((i, k) => (i.value = p.options[k] || "")); };
+    $("qpX").onclick = closeQuickPoll;
+    if (!SR) setTimeout(() => $("qpQ").focus(), 50);
+    $("qpMic")?.addEventListener("click", () => {
+      if (qpRec) { try { qpRec.stop(); } catch {} return; }
+      const r = new SR(); qpRec = r; r.lang = "en-NG"; r.interimResults = true; r.continuous = true;
+      let said = "", quiet = null;
+      const btn = $("qpMic"); btn.textContent = "■ Listening… tap when done"; btn.classList.add("rec");
+      const stopSoon = () => { clearTimeout(quiet); quiet = setTimeout(() => { try { r.stop(); } catch {} }, 3500); };
+      r.onresult = e => { let fin = "", tmp = ""; for (const x of e.results) (x.isFinal ? (fin += x[0].transcript + " ") : (tmp += x[0].transcript + " ")); said = (fin + tmp).trim(); $("qpHeard").textContent = "“" + said + "”"; fillIn(parsePoll(said)); stopSoon(); };
+      r.onerror = e => { $("qpErr").textContent = e.error === "not-allowed" ? "The microphone is blocked. Allow it in the browser, or type the poll." : e.error === "no-speech" ? "Didn't hear anything. Tap and try again." : "Couldn't listen just now. Type the poll instead."; };
+      r.onend = () => { clearTimeout(quiet); qpRec = null; const b = $("qpMic"); if (b) { b.textContent = said ? "🎙 Speak again" : "🎙 Tap and speak"; b.classList.remove("rec"); } };
+      try { r.start(); stopSoon(); } catch { qpRec = null; }
+    });
+    $("qpGo").onclick = async () => {
+      const q = $("qpQ").value.trim(), options = [...box.querySelectorAll("[data-qo]")].map(i => i.value.trim()).filter(Boolean);
+      if (q.length < 3) return ($("qpErr").textContent = "Say or type the question.");
+      if (options.length < 2) return ($("qpErr").textContent = "Give at least two options.");
+      $("qpGo").disabled = true;
+      const slot = "now-" + Date.now().toString(36);
+      const { data: a, error } = await sb.from("activities").insert({ session_id: P.s.id, slot, kind: "poll", title: "Quick poll", data: { steps: [{ q, options }], seconds: 0, quick: true } }).select().single();
+      if (error || !a) { $("qpGo").disabled = false; return ($("qpErr").textContent = errText(error, "Couldn't start the poll.")); }
+      P.acts.push(a);
+      const it = { t: "tool", tool: "poll", slot, label: "Quick poll", quick: true };
+      P.items.splice(P.i + 1, 0, it); drawStrip(); closeQuickPoll();
+      goItem(P.i + 1); startRun(it, "poll", a);
+    };
+  }
+  $("stPollBtn").addEventListener("click", openQuickPoll);
 
   // ---------- writing board ----------
   async function slideCanvas(n, width = 1600) {
@@ -1962,6 +2051,7 @@
     else if (e.key === "Escape" && !$("stShare").hidden) $("stShare").hidden = true;
     else if (e.key === "u" || e.key === "U") $("stGroupsBtn").click();
     else if (e.key === "o" || e.key === "O") openFocus();
+    else if (e.key === "p" || e.key === "P") openQuickPoll();
     else if (e.key === "Escape" && !$("stFocus").hidden) $("stFocus").hidden = true;
     else if (e.key === "Escape" && !$("stGroups").hidden) closeGroups();
     poke();

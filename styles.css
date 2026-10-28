@@ -995,3 +995,17 @@ table.t tbody tr:last-child td{border-bottom:0}
 .tna-open summary{cursor:pointer}
 .tna-open blockquote{margin:8px 0 0;padding:6px 12px;border-left:3px solid #6D3FC0;background:#F7F4FC;border-radius:0 8px 8px 0}
 .tna-nomlist{display:grid;gap:6px;max-height:340px;overflow:auto;padding:2px}
+.fbadge.res{background:#1F5FBF}
+/* quick poll on the live screen */
+.qp-mic{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.qp-mic .key.rec{background:#D2391F;border-color:#D2391F;color:#fff;animation:qpPulse 1.2s ease-in-out infinite}
+@keyframes qpPulse{50%{box-shadow:0 0 0 8px rgba(210,57,31,.18)}}
+.qp-f{display:flex;flex-direction:column;gap:6px;font-weight:700;color:var(--sfg)}
+.qp-f input{font:inherit;font-size:20px;font-weight:600;padding:12px 14px;border:1.5px solid var(--sline);border-radius:12px;background:transparent;color:var(--sfg)}
+.qp-f span{font-size:13px;color:var(--smuted)}
+.qp-opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:820px){.qp-opts{grid-template-columns:1fr 1fr}}
+.sti.quick{outline:2px dashed #F4B400;outline-offset:-3px}
+.st-fchip{pointer-events:auto;align-self:flex-end;border:0;border-radius:999px;background:#D2391F;color:#fff;font:inherit;font-weight:700;font-size:15px;padding:7px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18);cursor:pointer;opacity:.92}
+.st-fchip.res{background:#1F5FBF}
+.st-fchip b{font-family:var(--display);font-size:18px}
