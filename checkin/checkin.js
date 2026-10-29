@@ -20,7 +20,7 @@
   const DEV = store.get("ts_dev") || (() => { const d = crypto.randomUUID(); store.set("ts_dev", d); return d; })();
   const missingFn = e => /Could not find the function|does not exist|schema cache/i.test((e && e.message) || "");
   const hm = sec => { if (sec == null) return "–"; const m = Math.floor(sec / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; };
-  const SERVER_SAYS = /valid email|full name|ended|not valid|registered|this phone/i;
+  const SERVER_SAYS = /valid email|full name|ended|not valid|registered|this phone|photo|selfie|avatar/i;
   const show = which => ["start", "back", "again", "form", "room", "bye", "evalSec"].forEach(id => ($(id).hidden = id !== which));
   const note = t => { $("note").hidden = !t; $("note").textContent = t || ""; };
 
@@ -164,9 +164,54 @@
   $("fName").addEventListener("input", preview); $("titles").addEventListener("change", preview);
   let stream = null, picked = null;
   const stopCam = () => { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } };
+  // ---------- photo: a selfie (default), or an avatar when the programme allows it ----------
+  const AV_E = ["🦁", "🐘", "🦅", "🐬", "🦉", "🐢", "🦋", "🌻", "🌍", "⭐", "🚀", "🎯", "📚", "💡", "🎨", "⚽"];
+  const AV_C = ["#E07A00", "#1F5FBF", "#0F8A5F", "#6D3FC0", "#D2391F", "#0E8EA0", "#D63384", "#B8860B"];
+  let AV = null, noticeOk = false;   // AV = { e, c } when an avatar is chosen
+  const photoMode = () => (sess && sess.photo_mode) || "selfie";
+  function avatarCanvas() {
+    const c = document.createElement("canvas"); c.width = c.height = 480; const g = c.getContext("2d");
+    g.fillStyle = AV.c; g.fillRect(0, 0, 480, 480);
+    g.font = '280px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(AV.e, 240, 262);
+    return c;
+  }
+  function useAvatar(canSelfie) {
+    stopCam(); AV = AV || { e: AV_E[Math.floor(Math.random() * AV_E.length)], c: AV_C[Math.floor(Math.random() * AV_C.length)] };
+    $("camBox").hidden = true; const b = $("avBox"); b.hidden = false;
+    const draw = () => {
+      b.innerHTML = `<div class="avrow"><span class="avpv" style="background:${AV.c}">${AV.e}</span><span class="small muted">Pick a picture and a colour. It shows with your name on the screen.${canSelfie ? ` <button type="button" class="linkish" id="avSelfie">Take a selfie instead</button>` : ""}</span></div>
+        <div class="avgrid" role="group" aria-label="Picture">${AV_E.map(e => `<button type="button" data-e="${e}" aria-pressed="${AV.e === e}">${e}</button>`).join("")}</div>
+        <div class="avcols" role="group" aria-label="Colour">${AV_C.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-pressed="${AV.c === c}" aria-label="Colour"></button>`).join("")}</div>`;
+      b.querySelectorAll("[data-e]").forEach(x => (x.onclick = () => { AV.e = x.dataset.e; draw(); }));
+      b.querySelectorAll("[data-c]").forEach(x => (x.onclick = () => { AV.c = x.dataset.c; draw(); }));
+      $("avSelfie")?.addEventListener("click", () => { AV = null; b.hidden = true; $("camBox").hidden = false; startCam(); consentText(); });
+    };
+    draw(); consentText();
+  }
+  function consentText() { $("consentTxt").textContent = AV ? "I agree that my name, organisation and avatar will be shown on the welcome screen and kept in this programme's register." : "I agree that my name, organisation and photo will be shown on the welcome screen and kept in this programme's register."; }
+  // Before the camera opens: why the photo is taken.
+  function photoNotice() {
+    const pm = photoMode();
+    return new Promise(res => {
+      sheet(`<span class="lbl" style="color:#1F5FBF">📸 Your photo</span><h2>Why we take your photo</h2>
+        <p>Your selfie confirms that <b>you</b> attended this programme, and it shows with your name on the screen during this session's activities. It is kept with the programme's attendance records.</p>
+        ${pm === "selfie" ? `<p class="small"><b>A selfie is required for this programme.</b> If you can't take one, please see the facilitator.</p>` : ""}
+        <button class="btn red" type="button" id="phYes">📸 Take my selfie</button>${pm === "choice" ? `<button class="btn ghost" type="button" id="phAv">🙂 Use an avatar instead</button>` : ""}`);
+      $("phYes").onclick = () => { unsheet(); res("selfie"); };
+      $("phAv")?.addEventListener("click", () => { unsheet(); res("avatar"); });
+    });
+  }
   async function openForm() {
     show("form");
     sb.rpc("mda_list", { p_code: code }).then(({ data }) => { if (Array.isArray(data)) $("mdaList").innerHTML = data.map(o => `<option value="${esc(o)}">`).join(""); });
+    const pm = photoMode();
+    if (pm === "avatar") return useAvatar(false);
+    if (AV) return useAvatar(true);
+    if (stream) return;
+    if (!noticeOk) { const how = await photoNotice(); noticeOk = true; if (how === "avatar") return useAvatar(true); }
+    startCam();
+  }
+  async function startCam() {
     if (stream) return;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
@@ -178,6 +223,7 @@
     const img = new Image(); img.onload = () => { picked = img; $("still").src = img.src; $("still").hidden = false; $("camMsg").hidden = true; }; img.src = URL.createObjectURL(f);
   });
   function snap() {
+    if (AV) return avatarCanvas();
     const src = stream && $("video").videoWidth ? $("video") : picked; if (!src) return null;
     const w = src.videoWidth || src.naturalWidth, h = src.videoHeight || src.naturalHeight, s = Math.min(w, h);
     const c = document.createElement("canvas"); c.width = c.height = 480;
@@ -195,6 +241,7 @@
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return ($("fErr").textContent = "Enter a valid email address.");
     if (!$("fConsent").checked) return ($("fErr").textContent = "Tick the box to agree to your photo and name being shown.");
     const c = snap(); if (!c) return ($("fErr").textContent = "We need your photo. Allow the camera, or tap Take photo instead.");
+    const avatar = AV ? `${AV.e} ${AV.c}` : "";
     $("fErr").textContent = "Checking you in…"; $("fGo").disabled = true;
     let photo = "";
     try {
@@ -204,7 +251,8 @@
       if (!up.error) photo = sb.storage.from("ts-photos").getPublicUrl(path).data.publicUrl;
     } catch {}
     const args = { p_code: code, p_title: title, p_name: name, p_email: email, p_org: org, p_photo: photo };
-    await enter("checkin_v3", { code, title, name, email, org, photo, device: DEV, sex }, $("fErr"), (data, error) => {
+    if (!photo && !AV) { $("fGo").disabled = false; return ($("fErr").textContent = "Your photo didn't upload. Check the connection and tap Check me in again."); }
+    await enter("checkin_v3", { code, title, name, email, org, photo, device: DEV, sex, ...(avatar ? { avatar } : {}) }, $("fErr"), (data, error) => {
       $("fGo").disabled = false;
       if (error) return ($("fErr").textContent = SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you in. Check the connection and try again.");
       if (stream) stream.getTracks().forEach(t => t.stop());
