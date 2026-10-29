@@ -1009,3 +1009,11 @@ table.t tbody tr:last-child td{border-bottom:0}
 .st-fchip{pointer-events:auto;align-self:flex-end;border:0;border-radius:999px;background:#D2391F;color:#fff;font:inherit;font-weight:700;font-size:15px;padding:7px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18);cursor:pointer;opacity:.92}
 .st-fchip.res{background:#1F5FBF}
 .st-fchip b{font-family:var(--display);font-size:18px}
+/* venue check */
+.venuecard{border:1.5px solid var(--line-2);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;background:#F7FAFF}
+.venuecard .vhead{display:flex;flex-direction:column;gap:3px}
+.venuecard .vhead b{font-size:17px}
+.vwait{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:#fff;margin-top:6px}
+.where{white-space:nowrap;font-size:14px}.where small{color:var(--muted)}.where.on{color:#6D3FC0}
+.st-alert.vw{pointer-events:auto;max-width:420px}
+.st-novenue{color:#B3261E!important;max-width:320px;text-align:center}

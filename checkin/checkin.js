@@ -46,6 +46,79 @@
     show("start");
   }
 
+  // ---------- where you are: the venue check (on-site programmes) and at the venue / online (hybrid) ----------
+  let MODE = null;
+  const sheet = html => { let o = $("whereAsk"); if (!o) { o = document.createElement("div"); o.id = "whereAsk"; o.className = "focask"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true"); document.body.appendChild(o); }
+    o.innerHTML = `<div class="card">${html}</div>`; o.hidden = false; return o; };
+  const unsheet = () => { const o = $("whereAsk"); if (o) o.hidden = true; };
+  // hybrid: at the venue, or online? (asked once per session on this phone)
+  function askMode() {
+    const kept = store.get("ts_mode_" + code); if (kept === "venue" || kept === "online") return Promise.resolve(kept);
+    return new Promise(res => {
+      sheet(`<span class="lbl" style="color:#1F5FBF">Joining</span><h2>Where are you joining from?</h2>
+        <button class="btn red big" type="button" id="mVenue">📍 I'm at the venue</button><button class="btn ghost big" type="button" id="mOnline">💻 I'm joining online</button>
+        ${sess.geo ? `<p class="small muted">At the venue, your phone's location is checked once to confirm you're there. It isn't tracked or kept.</p>` : ""}<button class="linkish" type="button" id="mX">Cancel</button>`);
+      $("mVenue").onclick = () => { unsheet(); store.set("ts_mode_" + code, "venue"); res("venue"); };
+      $("mOnline").onclick = () => { unsheet(); store.set("ts_mode_" + code, "online"); res("online"); };
+      $("mX").onclick = () => { unsheet(); res(null); };
+    });
+  }
+  const getGeo = () => new Promise(res => {
+    if (!navigator.geolocation) return res({ err: "none" });
+    navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+      e => res({ err: e.code === 1 ? "denied" : e.code === 3 ? "timeout" : "unavailable" }), { enableHighAccuracy: true, timeout: 20000, maximumAge: 20000 });
+  });
+  // What goes with every way in: { mode, geo }. Returns null if the person cancelled.
+  async function presence(msgEl) {
+    if (!sess || !sess.delivery || sess.ended) return {};
+    MODE = sess.delivery === "onsite" ? "venue" : await askMode();
+    if (!MODE) return null;
+    if (MODE !== "venue" || !sess.geo) return { mode: MODE };
+    if (msgEl) msgEl.textContent = "📍 Checking you're at the venue…";
+    const g = await getGeo();
+    return g.err ? { mode: MODE, geoErr: g.err } : { mode: MODE, geo: { lat: g.lat, lng: g.lng, acc: Math.round(g.acc) } };
+  }
+  const isVenueErr = e => /venue:/.test((e && e.message) || "");
+  // Call a way in with the venue rule; on a venue problem, explain and offer Try again or Ask the facilitator.
+  // fn: the new function, base: its payload, msgEl: where to write, ok: what to do with the result, old: the older call if the new one isn't set up.
+  async function enter(fn, base, msgEl, ok, old) {
+    const pre = await presence(msgEl); if (!pre) { if (msgEl) msgEl.textContent = ""; return; }
+    if (pre.geoErr) return venueTrouble(pre.geoErr === "denied" ? "denied" : "weak", fn, base, msgEl, ok);
+    const { geoErr, ...extra } = pre;
+    let { data, error } = await sb.rpc(fn, { p: { ...base, ...extra } });
+    if (missingFn(error) && old) ({ data, error } = await old());
+    if (error && isVenueErr(error)) return venueTrouble(error.message, fn, base, msgEl, ok);
+    ok(data, error);
+  }
+  function venueTrouble(why, fn, base, msgEl, ok) {
+    if (msgEl) msgEl.textContent = "";
+    const far = String(why).match(/venue:far:(\d+)/), km = far ? +far[1] : 0;
+    const text = why === "denied" ? `<p>Training Suite needs your location <b>once</b> to confirm you're at the venue. It isn't tracked or kept.</p><p class="small">Allow location for this page (tap the 🔒 or ⓘ beside the web address, then Location → Allow), make sure Location is on, then tap Try again.</p>`
+      : /need|weak/.test(why) ? `<p>Your phone couldn't get a clear location. Turn on Location (GPS), move near a window or door, then tap Try again.</p>`
+      : `<p>Your phone shows you about <b>${km >= 1000 ? (km / 1000).toFixed(1) + " km" : km + " m"}</b> from the venue. You need to be at the venue to check in.</p>`;
+    sheet(`<span class="lbl" style="color:#D2391F">📍 Venue check</span><h2>${far ? "You don't seem to be at the venue" : "We couldn't confirm you're at the venue"}</h2>${text}
+      <button class="btn red" type="button" id="vAgain">Try again</button><button class="btn ghost" type="button" id="vAsk">I'm here: ask the facilitator to let me in</button>
+      ${sess.delivery === "hybrid" ? `<button class="btn ghost" type="button" id="vOnline">I'm joining online instead</button>` : ""}<button class="linkish" type="button" id="vX">Cancel</button>`);
+    $("vX").onclick = unsheet;
+    $("vAgain").onclick = () => { unsheet(); enter(fn, base, msgEl, ok); };
+    $("vOnline")?.addEventListener("click", () => { unsheet(); store.set("ts_mode_" + code, "online"); enter(fn, base, msgEl, ok); });
+    $("vAsk").onclick = async () => {
+      $("vAsk").disabled = true;
+      const { data: wid, error } = await sb.rpc("venue_ask", { p: { code, email: base.email || "", name: base.name ? fullName(base.title, base.name) : "", token: base.token || "" } });
+      if (error) { $("vAsk").disabled = false; $("vAsk").textContent = /valid email/i.test(error.message) ? "Enter your email first" : error.message; return; }
+      channel?.send({ type: "broadcast", event: "venue_ask", payload: {} });
+      try { const c = sb.channel("ts-" + code); c.subscribe(st => { if (st === "SUBSCRIBED") { c.send({ type: "broadcast", event: "venue_ask", payload: {} }); setTimeout(() => sb.removeChannel?.(c), 1500); } }); } catch {}
+      sheet(`<span class="lbl" style="color:#1F5FBF">📍 Venue check</span><h2>Asking your facilitator…</h2><p>Your name is on the facilitator's screen with a <b>Let in</b> button. Keep this page open: you'll be checked in as soon as they tap it.</p><div class="spin" aria-hidden="true"></div><button class="linkish" type="button" id="vX">Cancel</button>`);
+      let stop = false; $("vX").onclick = () => { stop = true; unsheet(); };
+      for (let i = 0; i < 400 && !stop; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const { data: st } = await sb.rpc("venue_wait", { p_id: wid });
+        if (st === "let") { unsheet(); const { data, error } = await sb.rpc(fn, { p: { ...base, mode: "venue", pass: wid } }); return ok(data, error); }
+        if (st === "no") { sheet(`<span class="lbl" style="color:#D2391F">📍 Venue check</span><h2>Not let in</h2><p>Your facilitator couldn't confirm you're at the venue. If you are, please speak to them.</p><button class="btn ghost" type="button" id="vX">Close</button>`); $("vX").onclick = unsheet; return; }
+      }
+    };
+  }
+
   // ---------- new here, or back in? ----------
   function showBack() { stopCam(); show("back"); $("bErr").textContent = ""; setTimeout(() => $("bEmail").focus(), 50); }
   $("sBack").addEventListener("click", showBack);
@@ -58,7 +131,7 @@
     const email = $("bEmail").value.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return ($("bErr").textContent = "Enter a valid email address.");
     $("bErr").textContent = "Finding you…"; $("bGo").disabled = true;
-    const { data, error } = await sb.rpc("rejoin", { p_code: code, p_email: email, p_device: DEV });
+    await enter("rejoin_v2", { code, email, device: DEV }, $("bErr"), (data, error) => {
     $("bGo").disabled = false;
     if (error) return ($("bErr").textContent = missingFn(error) ? "Getting back in by email isn't switched on yet. Tap I'm new here and use the same email." : /find that email|haven't checked in|ended|this phone|valid/i.test(error.message) ? error.message : "Couldn't get you back in. Check the connection and try again.");
     if (data.ended) {
@@ -67,16 +140,18 @@
       return openRoom();
     }
     done(data);
+    }, () => sb.rpc("rejoin", { p_code: code, p_email: email, p_device: DEV }));
+    $("bGo").disabled = false;
   });
 
   // ---------- one tap for returning people ----------
   $("aGo").addEventListener("click", async () => {
     const mine = store.get("ts_me_" + sess.pkey); $("aErr").textContent = "Checking you in…";
-    let { data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: mine.token, p_device: DEV });
-    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: mine.token }));
-    if (error && SERVER_SAYS.test(error.message)) return ($("aErr").textContent = error.message);
-    if (error || !data) { $("aErr").textContent = ""; return openForm(); }
-    done(data);
+    await enter("checkin_again_v2", { code, token: mine.token, device: DEV }, $("aErr"), (data, error) => {
+      if (error && SERVER_SAYS.test(error.message)) return ($("aErr").textContent = error.message);
+      if (error || !data) { $("aErr").textContent = ""; return openForm(); }
+      done(data);
+    }, () => sb.rpc("checkin_again", { p_code: code, p_token: mine.token, p_device: DEV }));
   });
   $("aNot").addEventListener("click", () => show("start"));
 
@@ -129,13 +204,13 @@
       if (!up.error) photo = sb.storage.from("ts-photos").getPublicUrl(path).data.publicUrl;
     } catch {}
     const args = { p_code: code, p_title: title, p_name: name, p_email: email, p_org: org, p_photo: photo };
-    let { data, error } = await sb.rpc("checkin_v2", { p: { code, title, name, email, org, photo, device: DEV, sex } });
-    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin", { ...args, p_device: DEV }));
-    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin", args));
+    await enter("checkin_v3", { code, title, name, email, org, photo, device: DEV, sex }, $("fErr"), (data, error) => {
+      $("fGo").disabled = false;
+      if (error) return ($("fErr").textContent = SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you in. Check the connection and try again.");
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      done(data);
+    }, async () => { let r = await sb.rpc("checkin_v2", { p: { code, title, name, email, org, photo, device: DEV, sex } }); if (missingFn(r.error)) r = await sb.rpc("checkin", { ...args, p_device: DEV }); if (missingFn(r.error)) r = await sb.rpc("checkin", args); return r; });
     $("fGo").disabled = false;
-    if (error) return ($("fErr").textContent = SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you in. Check the connection and try again.");
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    done(data);
   });
   function done(d) {
     me = { token: d.token, participant: d.participant, title: d.title, name: d.name, organisation: d.organisation, photo: d.photo, arrived_at: d.arrived_at };
@@ -653,13 +728,13 @@
   $("byeRoom").addEventListener("click", () => { show("room"); });
   $("byeBack").addEventListener("click", async () => {
     $("byeErr").textContent = "Checking you back in…";
-    let { data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: me.token, p_device: DEV });
-    if (missingFn(error)) ({ data, error } = await sb.rpc("checkin_again", { p_code: code, p_token: me.token }));
-    if (error || !data) return ($("byeErr").textContent = error && SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you back in. Try again.");
-    $("byeErr").textContent = "";
-    store.set("ts_in_" + code, { arrived_at: data.arrived_at });
-    channel?.send({ type: "broadcast", event: "checkin", payload: {} });
-    show("room"); $("dock").hidden = false; buzz([30, 40, 60]); loadTime();
+    await enter("checkin_again_v2", { code, token: me.token, device: DEV }, $("byeErr"), (data, error) => {
+      if (error || !data) return ($("byeErr").textContent = error && SERVER_SAYS.test(error.message) ? error.message : "Couldn't check you back in. Try again.");
+      $("byeErr").textContent = "";
+      store.set("ts_in_" + code, { arrived_at: data.arrived_at });
+      channel?.send({ type: "broadcast", event: "checkin", payload: {} });
+      show("room"); $("dock").hidden = false; buzz([30, 40, 60]); loadTime();
+    }, () => sb.rpc("checkin_again", { p_code: code, p_token: me.token, p_device: DEV }));
   });
 
   // ---------- time spent, and the end of the session ----------

@@ -69,6 +69,9 @@ window.TSR = (() => {
       const sx = d.sex.male + d.sex.female ? ` (${andList([d.sex.male ? plural(d.sex.male, "man", "men") : "", d.sex.female ? plural(d.sex.female, "woman", "women") : ""].filter(Boolean))}${d.sex.other ? `, and ${d.sex.other} who did not say` : ""})` : "";
       const orgs = d.mdas.length ? `, drawn from ${plural(d.mdas.length, "organisation")}${d.mdas.length > 1 ? `, including ${andList(d.mdas.slice(0, 3).map(m => m.label))}` : `: ${d.mdas[0].label}`}` : "";
       let p = `${Plural(d.attendees, "participant")} attended${sx}${orgs}.`;
+      const onV = d.roll.filter(r => r.mode === "venue").length, onL = d.roll.filter(r => r.mode === "online").length, chk = d.roll.filter(r => r.venue_check?.how === "gps").length;
+      if (onL) p += ` Of these, ${onV} attended at the venue and ${onL} online.`;
+      else if (onV && chk) p += ` Attendance at the venue was confirmed by phone location${chk < onV ? ` for ${chk} of them, and the facilitator let in the rest` : ""}.`;
       if (d.timePct != null) p += ` On average, participants were present for ${Math.round(d.timePct)}% of the session${d.early ? `, and ${plural(d.early, "participant")} left before the end` : ""}.`;
       out.push(p);
     } else out.push("No participants checked in for this session.");

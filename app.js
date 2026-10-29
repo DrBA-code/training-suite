@@ -389,7 +389,8 @@
       <label class="fld full">Programme name<input name="name" value="${esc(p?.name)}" placeholder="e.g. AI for Data, Research and Routine Work"></label>
       <label class="fld">Programme code<input name="code" value="${esc(p?.code)}" placeholder="e.g. PSSDC/AI/2026/01"></label>
       <label class="fld">Dates<input name="dates" value="${esc(p?.dates)}" placeholder="e.g. 3 to 7 November 2026"></label>
-      <label class="fld full">Venue<input name="venue" value="${esc(p?.venue)}"></label>
+      <label class="fld">Venue<input name="venue" value="${esc(p?.venue)}"></label>
+      <label class="fld">How people attend<select name="delivery">${[["", "Not set"], ["onsite", "On-site only: check that phones are at the venue"], ["hybrid", "Hybrid: at the venue or online"]].map(([v, t]) => `<option value="${v}" ${(p?.delivery || "") === v ? "selected" : ""}>${t}</option>`).join("")}</select><span class="hint">On-site and hybrid: register the venue's location from the session's Attendance tab when you get there.</span></label>
       <label class="fld full">Background <span class="hint" style="display:inline">(optional, for the programme report)</span><textarea name="background" rows="3" placeholder="The context: who requested the programme and the situation it responds to.">${esc(p?.background || "")}</textarea></label>
       <label class="fld full">Rationale <span class="hint" style="display:inline">(optional)</span><textarea name="rationale" rows="3" placeholder="Why the programme matters now and what it should change at work.">${esc(p?.rationale || "")}</textarea></label>
       <label class="fld full">Programme objectives <span class="hint" style="display:inline">(optional, one per line)</span><textarea name="objectives" rows="3" placeholder="By the end of the programme, participants will be able to…">${esc(p?.objectives || "")}</textarea></label>
@@ -406,7 +407,7 @@
       const open = !!openProg[p.id];
       return `<section class="prog"><button type="button" data-open="${p.id}" aria-expanded="${open}">
           <span class="sw" style="background:${["#D2391F", "#2747C8", "#F4B400", "#14161C"][progs.indexOf(p) % 4]}"></span>
-          <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}${p.roster_only ? " · Registered list only" : ""}${p.focus_allowed ? " · Focus mode" : ""}</span></span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}
+          <span style="min-width:0"><b>${esc(p.name)}</b><span class="meta">${esc([p.code, p.dates].filter(Boolean).join(" · ") || "No code or dates yet")}${p.certificates ? " · Certificates" : ""}${p.roster_only ? " · Registered list only" : ""}${p.focus_allowed ? " · Focus mode" : ""}${p.delivery === "onsite" ? " · On-site only" : p.delivery === "hybrid" ? " · Hybrid" : ""}</span></span>${p.completed_at ? `<span class="badge done">Completed</span>` : ""}
           <span class="meta meta2">${ss.length} session${ss.length === 1 ? "" : "s"}</span><span class="sign">${open ? "HIDE −" : "SESSIONS +"}</span></button>
         ${open ? `<div class="inside">${ss.map(s => { const [t, c] = statusOf(s); return `<a class="srow" href="#/session/${s.id}"><span><b>${esc(s.topic)}</b><small>${esc(fmtDate(s.session_date))}${s.start_time ? " · " + esc(s.start_time) : ""}</small></span><span class="badge ${c}">${t}</span><span class="ok">Open →</span></a>`; }).join("") || `<p class="muted" style="padding:6px 0 12px">No sessions in this programme yet.</p>`}
           <div class="row" style="margin-top:10px"><a class="btn ghost small" href="#/new?p=${p.id}">+ Add a session</a><a class="btn ghost small" href="#/people/${p.id}">Participants</a><a class="btn ghost small" href="#/programmes?edit=${p.id}">Edit programme</a><button class="btn ghost small" type="button" data-again="${p.id}">↻ Run again for a new group</button><a class="btn ghost small" href="#/report/p/${p.id}">Programme report</a><button class="btn danger small" type="button" data-del="${p.id}">Delete</button></div>
@@ -423,6 +424,7 @@
       f.addEventListener("submit", async e => {
         e.preventDefault();
         const row = { name: f.name.value.trim(), code: f.code.value.trim(), dates: f.dates.value.trim(), venue: f.venue.value.trim(), certificates: f.certificates.checked, cert_rule: f.cert_rule.value };
+        { const was = editing && progs.find(p => p.id === editing)?.delivery; if (f.delivery.value || was) row.delivery = f.delivery.value || null; }
         const was = editing && progs.find(p => p.id === editing)?.focus_allowed; if (f.focus.checked || was) row.focus_allowed = f.focus.checked;
         const old = editing ? progs.find(p => p.id === editing) : null;
         ["background", "rationale", "objectives"].forEach(k => { const v = f[k].value.trim(); if (v || (old && old[k])) row[k] = v; });
@@ -854,6 +856,7 @@
         <div class="confirm" style="border-color:var(--line-2)"><b>Delete this session</b><span class="small muted">Removes the session, its files and its results. Type the topic to confirm.</span><div class="row"><input class="in" id="delIn" style="max-width:360px" autocomplete="off" aria-label="Session topic"><button class="btn danger small" type="button" id="delGo">Delete session</button><span class="err" id="delErr"></span></div></div>`;
     } else if (sessTab === "attendance") {
       body = `<div class="row" style="gap:24px;align-items:center;border:1.5px solid var(--ink);padding:22px"><div class="qr">${qrSvg(checkinLink(s.attendance_code))}</div><div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="lbl">Check-in code</span><span class="code">${esc(s.attendance_code)}</span><span class="small" style="font-family:var(--mono);word-break:break-all">${esc(checkinLink(s.attendance_code))}</span><button class="btn ghost small" type="button" id="copyLink" style="align-self:flex-start">Copy link</button></div></div>
+        <div id="venueBox"></div>
         <div class="row" style="justify-content:space-between"><h2 style="font-size:20px">Register <span class="muted" id="regN" style="font-family:var(--body);font-weight:500;font-size:16px"></span></h2><div class="row"><button class="btn ghost small" type="button" id="regAdd">+ Check someone in</button><button class="btn ghost small" type="button" id="regRefresh">Refresh</button><button class="btn small" type="button" id="regCsv">Download (Excel/CSV)</button></div></div>
         <form id="regForm" class="grid2" hidden novalidate style="border:1.5px solid var(--ink);padding:18px"><span class="lbl full">For someone without a phone, or sharing one. Their time starts now.</span>
           <label class="fld">Title<select name="t">${TITLES.map(t => `<option>${t}</option>`).join("")}</select></label><label class="fld">Full name, as on the certificate<input name="n"></label>
@@ -887,7 +890,7 @@
     const save = async patch => { const { data, error } = await sb.from("sessions").update(patch).eq("id", id).select().single(); if (error) return toast(errText(error, "Couldn't update.")); sessions = sessions.map(x => x.id === id ? data : x); viewSession(id); };
     $("startRun")?.addEventListener("click", async () => { await save({ status: "live", progress: 0 }); location.hash = "#/present/" + id; });
     $("dropPending")?.addEventListener("click", () => { wizForget(id); if (W && W.key === id) W = null; viewSession(id); });
-    if (sessTab === "attendance") loadRegister(s);
+    if (sessTab === "attendance") { loadRegister(s); drawVenue(s); }
     if (sessTab === "assess") drawActs(s);
     if (sessTab === "learning") drawLearning(s);
     if (sessTab === "particip") drawParticipation(s);
@@ -948,6 +951,56 @@
   const pName = r => (r.title ? (r.title === "Miss" || r.title === "Ms" ? r.title + " " : r.title + ". ") : "") + r.name;
   const TITLES = ["", "Prof", "Dr", "Engr", "Mr", "Mrs", "Miss", "Ms"];
   const normName = n => String(n || "").toLowerCase().replace(/^(prof|dr|engr|mr|mrs|miss|ms)\.?\s+/, "").replace(/[^a-z ]/g, "").split(/\s+/).filter(Boolean).sort().join(" ");
+  // Where someone attended from: at the venue (checked by location, or let in) or online.
+  function whereText(r, html) {
+    const c = r.venue_check, t = r.mode === "online" ? "Online" : r.mode === "venue" ? (c?.how === "gps" ? `At the venue (${c.m} m)` : c?.how === "let_in" ? "At the venue (let in)" : "At the venue") : "";
+    if (!html) return t; if (!t) return "–";
+    return r.mode === "online" ? `<span class="where on">💻 Online</span>` : `<span class="where">📍 ${c?.how === "gps" ? `Venue <small>${c.m} m</small>` : c?.how === "let_in" ? "Venue <small>let in</small>" : "Venue"}</span>`;
+  }
+  // The venue: register it where you stand, and let in people whose phones can't prove they're there.
+  let venueT = null;
+  function drawVenue(s) {
+    const box = $("venueBox"); if (!box) return;
+    const p = progs.find(x => x.id === s.programme_id) || {};
+    clearInterval(venueT);
+    if (!p.delivery) { box.innerHTML = `<p class="small muted" style="margin:0">Want only people at the venue to check in? Set <b>How people attend</b> to On-site only (or Hybrid) in <a href="#/programmes?edit=${p.id}">the programme</a>.</p>`; return; }
+    const v = s.venue_geo || p.venue_geo, own = !!s.venue_geo;
+    box.innerHTML = `<div class="venuecard"><div class="vhead"><span class="lbl">${p.delivery === "onsite" ? "On-site only" : "Hybrid: at the venue or online"}</span>
+        <b>${v ? `📍 Venue registered · ${v.radius} m around the spot` : "📍 Venue not registered yet"}</b>
+        <span class="small muted">${v ? `${own ? "For this session only" : "For the whole programme"} · registered ${esc(fmtDate(String(v.at).slice(0, 10)))} at ${esc(fmtT(v.at))}${v.acc ? ` · phone accuracy ${v.acc} m` : ""}. ${p.delivery === "onsite" ? "Phones must be inside this area to check in." : "People who say they're at the venue must be inside this area."}`
+          : p.delivery === "onsite" ? "Until you register it, anyone with the code can check in from anywhere." : "Until you register it, people who say they're at the venue aren't checked."}</span></div>
+      <div class="row"><label class="small">Area<select id="vRad" class="in" style="padding:6px 8px">${[100, 150, 200, 300, 500].map(r => `<option value="${r}" ${(v?.radius || 150) === r ? "selected" : ""}>${r} m around</option>`).join("")}</select></label>
+        <label class="small">For<select id="vScope" class="in" style="padding:6px 8px"><option value="programme">the whole programme</option><option value="session" ${own ? "selected" : ""}>this session only</option></select></label>
+        <button class="btn red small" type="button" id="vSet">📍 ${v ? "Register again here" : "Register venue here"}</button>${v ? `<button class="btn ghost small" type="button" id="vClr">Remove</button>` : ""}</div>
+      <p class="small muted" style="margin:0">Do this <b>on your phone, standing in the training room</b>. A laptop's location can be hundreds of metres out.</p><span class="small" id="vMsg" role="status"></span>
+      <div id="vWaits"></div></div>`;
+    const save = async geo => {
+      const { data, error } = await sb.rpc("set_venue", { p_session: s.id, p_geo: geo, p_scope: $("vScope").value });
+      if (error) return ($("vMsg").textContent = /set_venue|schema cache/i.test(error.message || "") ? "Run supabase/schema-18-venue.sql in Supabase first." : errText(error, "Couldn't save the venue."));
+      if ($("vScope").value === "session") s.venue_geo = data; else { s.venue_geo = null; p.venue_geo = data; progs = progs.map(x => x.id === p.id ? { ...x, venue_geo: data } : x); }
+      sessions = sessions.map(x => x.id === s.id ? { ...x, venue_geo: s.venue_geo } : x);
+      toast(geo ? "Venue registered" : "Venue removed"); drawVenue(s);
+    };
+    $("vSet").onclick = () => {
+      if (!navigator.geolocation) return ($("vMsg").textContent = "This device can't share its location.");
+      $("vMsg").textContent = "Finding where you are… (allow location if asked)"; $("vSet").disabled = true;
+      navigator.geolocation.getCurrentPosition(pos => {
+        $("vSet").disabled = false; const acc = Math.round(pos.coords.accuracy);
+        if (acc > 200) $("vMsg").textContent = `Location is rough (±${acc} m). Saved, but registering on a phone near a window gives a better fix.`;
+        save({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc, radius: +$("vRad").value });
+      }, e => { $("vSet").disabled = false; $("vMsg").textContent = e.code === 1 ? "Location is blocked for this page. Allow it in the browser (the 🔒 beside the address), then try again." : "Couldn't get the location. Turn on Location and try again."; },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    };
+    $("vRad").onchange = () => { if (v) save({ ...v, radius: +$("vRad").value }); };
+    $("vClr")?.addEventListener("click", e => { const b = e.currentTarget; if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to remove"; return; } save(null); });
+    const waits = async () => {
+      const w = $("vWaits"); if (!w) return clearInterval(venueT);
+      const { data } = await sb.rpc("session_venue_waits", { p_session: s.id }); if (!Array.isArray(data)) return;
+      w.innerHTML = data.length ? `<b>Asking to be let in (${data.length})</b>${data.map(x => `<div class="vwait"><span><b>${esc(x.name)}</b> <small class="muted">${esc(x.email)} · ${esc(fmtT(x.at))}</small></span><span class="row" style="gap:6px"><button class="btn red small" type="button" data-let="${x.id}">Let in</button><button class="btn ghost small" type="button" data-no="${x.id}">No</button></span></div>`).join("")}` : "";
+      w.querySelectorAll("[data-let],[data-no]").forEach(b => (b.onclick = async () => { await sb.rpc("venue_answer", { p_id: b.dataset.let || b.dataset.no, p_let: !!b.dataset.let }); toast(b.dataset.let ? "Let in" : "Not let in"); waits(); if (b.dataset.let) setTimeout(() => $("regRefresh")?.click(), 5000); }));
+    };
+    if (v) { waits(); venueT = setInterval(waits, 4000); }
+  }
   async function loadRegister(s) {
     const add = $("regAdd"), form = $("regForm");
     add.onclick = () => { form.hidden = !form.hidden; if (!form.hidden) form.n.focus(); };
@@ -972,14 +1025,14 @@
       const isDup = r => (byName[normName(r.name)] || []).length > 1;
       const away = r => (r.periods || []).map(p => `${fmtT(p.out)}–${fmtT(p.back)}`).concat(r.left_at ? [`${fmtT(r.left_at)}–`] : []).join(", ");
       $("regN").textContent = `· ${rows.length} checked in · ${rows.filter(r => r.left_at).length} tapped out`;
-      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>Group</th><th>In</th><th>Away</th><th>Out</th><th>Time spent</th><th></th></tr></thead><tbody>${rows.map((r, i) => {
+      t.innerHTML = `<thead><tr><th>#</th><th>Photo</th><th>Name</th><th>Email</th><th>Organisation</th><th>Group</th><th>Where</th><th>In</th><th>Away</th><th>Out</th><th>Time spent</th><th></th></tr></thead><tbody>${rows.map((r, i) => {
         const d = dupOf(r);
         return `<tr><td>${i + 1}</td><td>${r.photo ? `<img src="${esc(r.photo)}" alt="" width="40" height="40" style="object-fit:cover;display:block">` : ""}</td>
           <td><b>${esc(pName(r))}</b>${isDup(r) ? `<br><span class="flag">Possible duplicate</span>` : ""}${(r.rejoins || []).length ? `<br><small class="muted" title="${esc(r.rejoins.map(fmtT).join(", "))}">↩ Back in by email ${r.rejoins.length > 1 ? r.rejoins.length + " times" : "at " + fmtT(r.rejoins[0])}</small>` : ""}</td><td>${esc(r.email)}</td><td>${esc(r.organisation)}</td>
-          <td>${r.grp ? `<span class="gpill" style="background:${TSGR.color(r.grp)}">${esc(TSGR.name(s.groups, r.grp))}</span>` : "–"}</td><td>${fmtT(r.arrived_at)}</td><td>${r.away_seconds || r.left_at ? `<span title="${esc(away(r))}">${hm(r.away_seconds)}</span><br><small class="muted">${esc(away(r))}</small>` : "–"}</td>
+          <td>${r.grp ? `<span class="gpill" style="background:${TSGR.color(r.grp)}">${esc(TSGR.name(s.groups, r.grp))}</span>` : "–"}</td><td>${whereText(r, true)}</td><td>${fmtT(r.arrived_at)}</td><td>${r.away_seconds || r.left_at ? `<span title="${esc(away(r))}">${hm(r.away_seconds)}</span><br><small class="muted">${esc(away(r))}</small>` : "–"}</td>
           <td>${fmtT(r.left_at) || "–"}</td><td><b>${hm(r.spent_seconds)}</b></td>
           <td>${d.length ? `<button class="btn ghost small" type="button" data-merge="${r.participant}" data-into="${d[0].participant}">Merge into ${esc(d[0].email)}</button>` : ""}</td></tr>`;
-      }).join("") || `<tr><td colspan="11" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
+      }).join("") || `<tr><td colspan="12" class="muted">No one has checked in yet. Open the live screen to show the check-in QR code.</td></tr>`}</tbody>`;
       t.querySelectorAll("[data-merge]").forEach(b => b.addEventListener("click", async () => {
         if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to merge"; return; }
         const { error } = await sb.rpc("merge_participants", { p_keep: b.dataset.into, p_drop: b.dataset.merge });
@@ -991,8 +1044,8 @@
         const { data: part } = await sb.rpc("session_participation", { p_session: s.id });
         const pm = Object.fromEntries((part || []).map(x => [x.participant, x]));
         csvDownload(`Register - ${s.topic}`, [["Programme", p.name], ["Session", s.topic], ["Date", s.session_date || ""], [],
-          ["#", "Title", "Name", "Email", "Organisation", "Sex", "Group", "Focus: times left", "Focus: time away", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
-          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, { male: "Male", female: "Female", na: "Prefer not to say" }[r.sex] || "", r.grp ? TSGR.name(s.groups, r.grp) : "", r.focus_accepted ? r.focus_leaves || 0 : "", r.focus_accepted ? hm(r.focus_away || 0) : "", fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
+          ["#", "Title", "Name", "Email", "Organisation", "Sex", "Group", "Where", "Focus: times left", "Focus: time away", "Time in", "Time away", "Away periods", "Time out", "Time spent", "Minutes spent", "Activities taken part in", "Activities run", "Participation %", "Points", "Participation rank", "Photo"],
+          ...rows.map((r, i) => { const x = pm[r.participant] || {}; return [i + 1, r.title, r.name, r.email, r.organisation, { male: "Male", female: "Female", na: "Prefer not to say" }[r.sex] || "", r.grp ? TSGR.name(s.groups, r.grp) : "", whereText(r, false), r.focus_accepted ? r.focus_leaves || 0 : "", r.focus_accepted ? hm(r.focus_away || 0) : "", fmtT(r.arrived_at), hm(r.away_seconds), away(r), fmtT(r.left_at), hm(r.spent_seconds), Math.round((r.spent_seconds || 0) / 60), x.taken ?? "", x.runs ?? "", x.rate ?? "", x.points ?? "", x.rank ?? "", r.photo]; })]);
       };
     };
     $("regRefresh").onclick = draw;
@@ -1358,6 +1411,8 @@
     loadFocus(true);
     P.focusTimer = setInterval(drawAlerts, 1000);
     P.fxPoll = setInterval(() => { if (P?.focus && !document.hidden) loadFocus(); }, 5000);
+    P.channel.on("broadcast", { event: "venue_ask" }, () => loadVenueWaits());
+    P.vwPoll = setInterval(() => { if (!document.hidden) loadVenueWaits(); }, 5000); loadVenueWaits();
     $("stage").style.setProperty("--dockh", $("stDock").offsetHeight + "px");
     goItem(0);
     if (gestPref()) gestures(true);
@@ -1368,7 +1423,7 @@
     if (!P) return;
     stopRun(); closeWheel(); window.TSG?.stop(); $("stCam").hidden = true; $("stGest").setAttribute("aria-pressed", "false"); $("stBlank").hidden = true; $("stRemote").hidden = true;
     if (P.remote) sb.removeChannel ? sb.removeChannel(P.remote) : P.remote.unsubscribe?.();
-    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer); clearInterval(P.focusTimer); clearInterval(P.fxPoll); closeQuickPoll(); $("stAlerts").innerHTML = ""; $("stFocus").hidden = true;
+    clearInterval(P.nowTimer); clearInterval(P.rollTimer); clearInterval(P.remoteTimer); clearInterval(P.focusTimer); clearInterval(P.fxPoll); clearInterval(P.vwPoll); closeQuickPoll(); $("stAlerts").innerHTML = ""; $("stFocus").hidden = true;
     if (P.channel) sb.removeChannel ? sb.removeChannel(P.channel) : P.channel.unsubscribe?.();
     P = null;
   }
@@ -1501,9 +1556,24 @@
     P.run = TSA.live(m.firstElementChild, { sb, session: P.s, activity: a, run, channel: P.channel, phones: () => P?.phones || 0, groups: () => gcfg(), ai: aiCall, fingers: f => window.TSG.fingers(f), onCamera: on => { if (window.TSG.on || P?.gestPaused) { P.gestPaused = on; window.TSG.pause(on); } },
       onDone: () => { if (P && P.i === at) { if (P.i < P.items.length - 1) goItem(P.i + 1); else { stopRun(); draw(); } } } });
   }
+  // People whose phones couldn't prove they're at the venue, asking to be let in.
+  async function loadVenueWaits() {
+    if (!P) return; const pg = progs.find(x => x.id === P.s.programme_id);
+    if (!pg?.delivery || !(P.s.venue_geo || pg.venue_geo)) return;
+    const { data } = await sb.rpc("session_venue_waits", { p_session: P.s.id }); if (!P || !Array.isArray(data)) return;
+    const box = $("stAlerts"); box.querySelectorAll(".st-alert.vw").forEach(e => { if (!data.some(x => x.id === e.dataset.id)) e.remove(); });
+    data.forEach(x => {
+      if (box.querySelector(`.st-alert.vw[data-id="${x.id}"]`)) return;
+      const el = document.createElement("div"); el.className = "st-alert vw"; el.dataset.id = x.id; el.style.setProperty("--ac", "#1F5FBF");
+      el.innerHTML = `📍 <b>${esc(x.name)}</b> asks to be let in: their phone couldn't confirm they're at the venue.<span class="row" style="gap:6px;margin-top:6px"><button type="button" class="key next" data-v="1">Let in</button><button type="button" class="key" data-v="0">No</button></span>`;
+      el.querySelectorAll("[data-v]").forEach(b => (b.onclick = async () => { await sb.rpc("venue_answer", { p_id: x.id, p_let: b.dataset.v === "1" }); el.remove(); stFlash(b.dataset.v === "1" ? `📍 ${x.name} let in` : "Not let in"); }));
+      box.appendChild(el);
+    });
+  }
   function drawWelcome() {
     const m = $("stMain"), code = P.s.attendance_code, link = checkinLink(code), here = P.roll.filter(r => !r.left_at);
-    m.innerHTML = `<div class="st-welcome"><div class="st-scan"><div class="qr big">${qrSvg(link)}</div><span class="lbl" style="color:var(--smuted)">Scan to check in</span><span class="code" style="color:var(--sstrong)">${esc(code)}</span><span class="small" style="color:var(--smuted);word-break:break-all">${esc(link)}</span></div>
+    const pg = progs.find(x => x.id === P.s.programme_id), noVenue = pg?.delivery === "onsite" && !(P.s.venue_geo || pg.venue_geo);
+    m.innerHTML = `<div class="st-welcome"><div class="st-scan"><div class="qr big">${qrSvg(link)}</div><span class="lbl" style="color:var(--smuted)">Scan to check in</span><span class="code" style="color:var(--sstrong)">${esc(code)}</span><span class="small" style="color:var(--smuted);word-break:break-all">${esc(link)}</span>${noVenue ? `<span class="small st-novenue">📍 Venue not registered yet: anyone with the code can check in. Register it from the session's Attendance tab on your phone.</span>` : ""}</div>
       <div class="st-roll"><div class="st-hello"><span lang="yo">Ẹ káàbọ̀</span> · You are welcome</div><h2>${esc(P.s.topic)}</h2>
       <div class="faces">${here.slice(-40).reverse().map(r => `<figure>${r.photo ? `<img src="${esc(r.photo)}" alt="">` : `<span>${esc((r.name || "?")[0])}</span>`}<figcaption>${esc(pName(r))}</figcaption></figure>`).join("") || `<p style="color:var(--smuted)">Arrivals appear here.</p>`}</div></div></div>`;
   }
