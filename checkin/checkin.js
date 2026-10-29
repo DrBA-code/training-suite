@@ -165,26 +165,42 @@
   let stream = null, picked = null;
   const stopCam = () => { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } };
   // ---------- photo: a selfie (default), or an avatar when the programme allows it ----------
-  const AV_E = ["🦁", "🐘", "🦅", "🐬", "🦉", "🐢", "🦋", "🌻", "🌍", "⭐", "🚀", "🎯", "📚", "💡", "🎨", "⚽"];
-  const AV_C = ["#E07A00", "#1F5FBF", "#0F8A5F", "#6D3FC0", "#D2391F", "#0E8EA0", "#D63384", "#B8860B"];
-  let AV = null, noticeOk = false;   // AV = { e, c } when an avatar is chosen
-  const photoMode = () => (sess && sess.photo_mode) || "selfie";
-  function avatarCanvas() {
-    const c = document.createElement("canvas"); c.width = c.height = 480; const g = c.getContext("2d");
-    g.fillStyle = AV.c; g.fillRect(0, 0, 480, 480);
-    g.font = '280px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(AV.e, 240, 262);
-    return c;
+  // Faceless head-and-shoulders portraits: a man with a low cut, or a woman in a gele; skin tone and background chosen.
+  const AV_S = ["#A86B3C", "#8D5524", "#6B3E1F", "#4A2A17"];
+  const AV_C = ["#1F5FBF", "#0F8A5F", "#6D3FC0", "#D2391F", "#E07A00", "#0E8EA0", "#D63384", "#B8860B"];
+  let AV = null, AVC = null, noticeOk = false;   // AV = { x: "m" | "f", s: skin, c: background }
+  const wrapOf = c => ({ "#B8860B": "#6D3FC0", "#E07A00": "#1F5FBF", "#D63384": "#E0A100", "#6D3FC0": "#E0A100" }[c] || "#E0A100");
+  function avatarSvg(a) {
+    const shade = `fill="#000" fill-opacity=".3"`, w = wrapOf(a.c), f = a.x === "f";
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${a.c}"/>` +
+      (f ? `<path d="M10 100 C12 82 28 74 41 72 L59 72 C72 74 88 82 90 100 Z" ${shade}/><path d="M43 58 L57 58 L58 73 Q50 79 42 73 Z" fill="${a.s}"/><ellipse cx="50" cy="45" rx="16" ry="19.5" fill="${a.s}"/>` +
+           `<path d="M31 41 C26 20 40 8 54 8 C70 8 80 20 70 41 C64 33 57 31 50 31 C42 31 36 33 31 41 Z" fill="${w}"/><path d="M64 12 C76 4 92 12 86 28 C82 22 74 18 66 18 Z" fill="${w}"/>` +
+           `<path d="M60 13 C68 9 76 10 82 16" stroke="#000" stroke-opacity=".2" stroke-width="1.4" fill="none"/><path d="M33 33 C42 26 60 26 69 33" stroke="#000" stroke-opacity=".2" stroke-width="1.6" fill="none"/>`
+         : `<path d="M2 100 C4 80 22 71 38 69 L62 69 C78 71 96 80 98 100 Z" ${shade}/><path d="M41 58 L59 58 L60 70 Q50 77 40 70 Z" fill="${a.s}"/><ellipse cx="50" cy="43" rx="17.5" ry="21" fill="${a.s}"/>` +
+           `<path d="M32.6 41 C31 24 40 20 50 20 C60 20 69 24 67.4 41 C65 33 59 30 50 30 C41 30 35 33 32.6 41 Z" fill="#17110D"/>`) + `</svg>`;
   }
+  // the picture that is kept, like a photo
+  const renderAvatar = () => new Promise(res => {
+    const img = new Image(), c = document.createElement("canvas"); c.width = c.height = 480;
+    img.onload = () => { c.getContext("2d").drawImage(img, 0, 0, 480, 480); AVC = c; res(c); };
+    img.onerror = () => res(null);
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSvg(AV));
+  });
+  function avatarCanvas() { return AVC; }
+  const photoMode = () => (sess && sess.photo_mode) || "selfie";
   function useAvatar(canSelfie) {
-    stopCam(); AV = AV || { e: AV_E[Math.floor(Math.random() * AV_E.length)], c: AV_C[Math.floor(Math.random() * AV_C.length)] };
+    stopCam(); AV = AV || { x: document.querySelector("input[name=sex]:checked")?.value === "female" ? "f" : "m", s: AV_S[1], c: AV_C[Math.floor(Math.random() * AV_C.length)] };
     $("camBox").hidden = true; const b = $("avBox"); b.hidden = false;
     const draw = () => {
-      b.innerHTML = `<div class="avrow"><span class="avpv" style="background:${AV.c}">${AV.e}</span><span class="small muted">Pick a picture and a colour. It shows with your name on the screen.${canSelfie ? ` <button type="button" class="linkish" id="avSelfie">Take a selfie instead</button>` : ""}</span></div>
-        <div class="avgrid" role="group" aria-label="Picture">${AV_E.map(e => `<button type="button" data-e="${e}" aria-pressed="${AV.e === e}">${e}</button>`).join("")}</div>
-        <div class="avcols" role="group" aria-label="Colour">${AV_C.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-pressed="${AV.c === c}" aria-label="Colour"></button>`).join("")}</div>`;
-      b.querySelectorAll("[data-e]").forEach(x => (x.onclick = () => { AV.e = x.dataset.e; draw(); }));
+      b.innerHTML = `<div class="avrow"><span class="avpv">${avatarSvg(AV)}</span><span class="small muted">Choose a portrait. It shows with your name on the screen.${canSelfie ? ` <button type="button" class="linkish" id="avSelfie">Take a selfie instead</button>` : ""}</span></div>
+        <div class="avsex" role="group" aria-label="Portrait">${[["m", "Man"], ["f", "Woman"]].map(([k, l]) => `<button type="button" data-x="${k}" aria-pressed="${AV.x === k}"><span>${avatarSvg({ ...AV, x: k })}</span>${l}</button>`).join("")}</div>
+        <div class="avcols" role="group" aria-label="Skin tone"><span class="small muted">Skin tone</span>${AV_S.map(c => `<button type="button" data-s="${c}" style="background:${c}" aria-pressed="${AV.s === c}" aria-label="Skin tone"></button>`).join("")}</div>
+        <div class="avcols" role="group" aria-label="Background"><span class="small muted">Background</span>${AV_C.map(c => `<button type="button" data-c="${c}" style="background:${c}" aria-pressed="${AV.c === c}" aria-label="Background colour"></button>`).join("")}</div>`;
+      b.querySelectorAll("[data-x]").forEach(x => (x.onclick = () => { AV.x = x.dataset.x; draw(); }));
+      b.querySelectorAll("[data-s]").forEach(x => (x.onclick = () => { AV.s = x.dataset.s; draw(); }));
       b.querySelectorAll("[data-c]").forEach(x => (x.onclick = () => { AV.c = x.dataset.c; draw(); }));
-      $("avSelfie")?.addEventListener("click", () => { AV = null; b.hidden = true; $("camBox").hidden = false; startCam(); consentText(); });
+      $("avSelfie")?.addEventListener("click", () => { AV = null; AVC = null; b.hidden = true; $("camBox").hidden = false; startCam(); consentText(); });
+      renderAvatar();
     };
     draw(); consentText();
   }
@@ -240,8 +256,9 @@
     if (name.length < 3) return ($("fErr").textContent = "Enter your full name.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return ($("fErr").textContent = "Enter a valid email address.");
     if (!$("fConsent").checked) return ($("fErr").textContent = "Tick the box to agree to your photo and name being shown.");
+    if (AV) await renderAvatar();
     const c = snap(); if (!c) return ($("fErr").textContent = "We need your photo. Allow the camera, or tap Take photo instead.");
-    const avatar = AV ? `${AV.e} ${AV.c}` : "";
+    const avatar = AV ? `${AV.x} ${AV.s} ${AV.c}` : "";
     $("fErr").textContent = "Checking you in…"; $("fGo").disabled = true;
     let photo = "";
     try {

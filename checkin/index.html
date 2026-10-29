@@ -75,11 +75,12 @@
   @keyframes spn{to{transform:rotate(360deg)}}
   .avbox{display:flex;flex-direction:column;gap:10px}
   .avrow{display:flex;gap:14px;align-items:center}
-  .avpv{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-size:46px;flex:none}
-  .avgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
-  .avgrid button{font-size:24px;border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:6px 0;cursor:pointer}
-  .avgrid button[aria-pressed="true"]{border-color:#14161C;box-shadow:0 0 0 2px #14161C}
-  .avcols{display:flex;gap:8px;flex-wrap:wrap}
+  .avpv{width:96px;height:96px;border-radius:50%;overflow:hidden;flex:none}.avpv svg,.avsex svg{display:block;width:100%;height:100%}
+  .avsex{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .avsex button{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:8px 10px;font:inherit;font-weight:700;cursor:pointer;color:var(--ink)}
+  .avsex button span{width:44px;height:44px;border-radius:50%;overflow:hidden;flex:none}
+  .avsex button[aria-pressed="true"]{border-color:#14161C;box-shadow:0 0 0 2px #14161C}
+  .avcols{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.avcols .small{width:100%}
   .avcols button{width:32px;height:32px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1.5px var(--line);cursor:pointer}
   .avcols button[aria-pressed="true"]{box-shadow:0 0 0 3px #14161C}
   .howback{background:#EEF4FD;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;color:#14161C}.howback b{color:#1F5FBF}
